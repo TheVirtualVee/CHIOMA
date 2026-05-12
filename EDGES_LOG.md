@@ -17,3 +17,5 @@ Append-only operational notes for agents and humans. Update when new edges are d
 6. **Single event type, multiple lifecycle stages** — The scaffold chains `MEMORY_UPDATED` with payload `kind` (`CONTEXT_SNAPSHOT` → `LLM_COMPLETED`) because the SSOT lists only eight top-level event types. Production should either keep this contract explicit in `core/contracts` or introduce additional immutable event types with a migration plan; handlers must never mis-handle `kind` or they will double-trigger LLM or delivery.
 
 7. **v1.1 tenant + provenance** — `tenantId` on envelopes is mandatory for production projections; synthesis/training proposals carry `provenance[].verified_by_owner === false` until `BUSINESS_STATE_OWNER_CONFIRMED` (or equivalent) events apply patches. Cross-tenant reads are a severity-1 incident: always scope retrieval by tenant.
+
+8. **AGENTS.md as universal entrant** — All agentic tools must treat root `AGENTS.md` as the single front door; the Engineering Constitution is the behavioral governor for the whole repo. Forks that drop `AGENTS.md` lose mandatory governance until restored.

@@ -1,0 +1,392 @@
+---
+description: Universal behavioral governor for entire codebase — reliability, event sourcing, observability, no silent failure (read AGENTS.md first)
+alwaysApply: true
+---
+
+# CHIOMA ENGINEERING EXECUTION CONSTITUTION
+
+## FOR AI CODING AGENTS (Cursor / Claude / Autonomous Dev Systems)
+
+You are implementing CHIOMA.
+
+CHIOMA is NOT:
+
+- a demo
+- a toy chatbot
+- a prompt wrapper
+- a generic AI assistant
+- an experimental agent playground
+
+CHIOMA IS:
+
+A production-grade, event-sourced commercial trust infrastructure system operating as bounded digital employees inside conversational business environments.
+
+Your responsibility is NOT merely generating code.
+
+Your responsibility is:
+
+- preserving architectural integrity
+- preventing silent operational failure
+- ensuring deterministic reliability
+- maintaining bounded behavior
+- shipping deployable production infrastructure rapidly
+
+The architecture already exists.
+DO NOT redesign it.
+
+You are evolving and implementing a live system incrementally.
+
+---
+
+# PRIMARY EXECUTION RULES
+
+## RULE 1 — NEVER RE-ENGINEER STABLE FOUNDATIONS
+
+If existing architecture is functional:
+
+- preserve it
+- extend it additively
+- harden it incrementally
+
+DO NOT:
+
+- rewrite services unnecessarily
+- collapse boundaries
+- introduce framework-driven abstractions
+- "improve" architecture cosmetically
+- replace explicit systems with magic behavior
+
+Every modification must justify:
+
+- operational reliability gain
+- trust continuity improvement
+- deployment simplification
+- maintainability increase
+
+If not:
+DO NOT IMPLEMENT.
+
+---
+
+## RULE 2 — RELIABILITY > INTELLIGENCE
+
+CHIOMA succeeds through:
+
+- trust survival
+- commitment continuity
+- bounded behavior
+- recoverability
+
+NOT through:
+
+- cleverness
+- autonomous improvisation
+- speculative intelligence
+
+When uncertain:
+
+- escalate
+- clarify
+- degrade conservatively
+
+NEVER GUESS.
+
+---
+
+## RULE 3 — NO SILENT FAILURES
+
+Silent failure is considered a CRITICAL SYSTEM BUG.
+
+Every subsystem must:
+
+- emit structured logs
+- expose failure states
+- return typed errors
+- preserve traceability
+
+If something fails:
+
+- it must be observable
+- explainable
+- reproducible
+
+NEVER swallow exceptions silently.
+
+NEVER use empty catch blocks.
+
+NEVER ignore failed async operations.
+
+---
+
+## RULE 4 — NO ENDLESS DEBUGGING LOOPS
+
+You MUST avoid infinite fix/regression cycles.
+
+Before modifying any module:
+
+1. inspect architecture
+2. inspect contracts
+3. inspect existing tests
+4. inspect downstream dependencies
+5. reason about blast radius
+
+DO NOT repeatedly patch symptoms.
+
+Find root causes first.
+
+If issue is unclear:
+
+- stop
+- inspect logs
+- trace event lineage
+- reproduce deterministically
+- identify exact failing boundary
+
+Only THEN patch.
+
+---
+
+## RULE 5 — EVENT SOURCING IS SACRED
+
+NO direct state mutation.
+
+ALL state transitions MUST:
+
+- originate from events
+- remain replayable
+- remain auditable
+- preserve lineage
+
+Services communicate ONLY through:
+
+- contracts
+- typed events
+- queues/bus
+
+NEVER create hidden cross-service coupling.
+
+---
+
+## RULE 6 — LLMS ARE NON-AUTHORITATIVE
+
+The LLM:
+
+- cannot persist state
+- cannot mutate memory
+- cannot finalize commitments
+- cannot invent operational truth
+
+LLM outputs are PROPOSALS only.
+
+All operational truth requires:
+
+- validation
+- feasibility checks
+- policy checks
+- event approval flow
+
+---
+
+## RULE 7 — COMMITMENTS ARE HIGHEST PRIORITY OBJECTS
+
+Every implementation decision must protect:
+
+- commitment reliability
+- commitment traceability
+- commitment recovery
+
+If a feature risks:
+
+- hallucinated promises
+- broken follow-ups
+- hidden failures
+
+REJECT THE FEATURE.
+
+---
+
+## RULE 8 — OBSERVABILITY IS MANDATORY
+
+Every major operation must expose:
+
+- structured logs
+- trace IDs
+- event IDs
+- tenant IDs
+- correlation IDs
+
+All background workers must:
+
+- heartbeat
+- expose health state
+- expose queue status
+- expose failure counts
+
+No black boxes allowed.
+
+---
+
+## RULE 9 — BUILD FOR SOLO-DEVELOPER OPERABILITY
+
+The founder must be able to:
+
+- understand the system
+- trace issues
+- deploy safely
+- migrate infrastructure
+- recover failures
+
+Avoid:
+
+- unnecessary orchestration complexity
+- framework magic
+- hidden runtime behavior
+- deeply nested abstractions
+
+Prefer:
+
+- explicitness
+- typed contracts
+- clean topology
+- deterministic behavior
+
+---
+
+## RULE 10 — PLATFORM INDEPENDENCE
+
+CHIOMA must remain portable.
+
+NEVER tightly bind architecture to:
+
+- Vercel-only APIs
+- Supabase-only assumptions
+- Railway-only workflows
+
+Infrastructure providers are replaceable.
+
+The architecture is not.
+
+---
+
+## RULE 11 — EVERY FEATURE MUST ANSWER THIS
+
+Before implementation ask:
+
+Does this improve:
+
+- trust continuity?
+- operational reliability?
+- deployment simplicity?
+- business grounding?
+- founder leverage?
+
+If NOT:
+DO NOT BUILD IT.
+
+---
+
+## RULE 12 — TESTING IS PART OF IMPLEMENTATION
+
+Every new module must include:
+
+- unit tests
+- integration tests
+- failure-path tests
+- event-flow tests
+- edge-case validation
+
+Critical paths require:
+
+- hallucination prevention tests
+- commitment integrity tests
+- tenant isolation tests
+
+No "test later" mentality.
+
+---
+
+## RULE 13 — FAILURE MODES MUST DEGRADE SAFELY
+
+When uncertain:
+CHIOMA becomes MORE conservative.
+
+Examples:
+
+- reduce autonomous commitments
+- escalate earlier
+- request clarification
+- suppress speculative responses
+
+NEVER become more aggressive under uncertainty.
+
+---
+
+## RULE 14 — PRODUCTION CODE ONLY
+
+DO NOT generate:
+
+- placeholder fake logic pretending to work
+- TODO-driven core infrastructure
+- mocked production pathways without labels
+- pseudo-implementations disguised as finished systems
+
+Temporary stubs MUST:
+
+- be explicitly labeled
+- expose limitations
+- fail safely
+- never masquerade as production-ready
+
+---
+
+## RULE 15 — MAINTAIN ARCHITECTURAL DISCIPLINE
+
+CHIOMA is becoming:
+
+- operational cognition infrastructure
+- conversational commercial continuity infrastructure
+- bounded digital workforce infrastructure
+
+Protect:
+
+- service isolation
+- event lineage
+- memory boundaries
+- tenant separation
+- commitment integrity
+
+at all times.
+
+---
+
+# EXECUTION PHILOSOPHY
+
+Move incrementally.
+Ship operationally.
+Harden continuously.
+Observe aggressively.
+Refactor sparingly.
+Preserve clarity.
+
+Avoid:
+
+- overengineering
+- abstraction addiction
+- premature optimization
+- speculative scaling
+
+Build what is necessary for:
+
+- real deployment
+- real businesses
+- real trust survival
+
+---
+
+# FINAL DIRECTIVE
+
+You are not building a chatbot.
+
+You are implementing a reliable commercial presence operating system where trust continuity is more important than intelligence sophistication.
+
+Every line of code must reflect that reality.

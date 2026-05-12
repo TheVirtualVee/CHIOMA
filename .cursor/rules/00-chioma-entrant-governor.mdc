@@ -1,0 +1,12 @@
+---
+description: Mandatory entrant — all agents read AGENTS.md + Engineering Constitution before any edit
+alwaysApply: true
+---
+
+# CHIOMA — universal entrant (non-optional)
+
+1. Open the repository root **`AGENTS.md`** first. It defines reading order, conflict resolution, and hard gates.
+2. Treat **`.cursor/rules/chioma-engineering-constitution.mdc`** as the **universal behavioral governor** for the whole codebase (reliability over intelligence, no silent failure, sacred event sourcing, LLM non-authority, commitment-first, observability, labeled stubs only).
+3. Do not write or refactor code until that path is satisfied for the current task scope.
+
+If `AGENTS.md` is missing in a fork: restore it from `main` before proceeding.
