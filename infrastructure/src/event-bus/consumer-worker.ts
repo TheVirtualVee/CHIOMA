@@ -11,6 +11,8 @@ export type EventSource = {
 export type ConsumerOffsetStore = {
   getOffset(tenantId: string, consumerGroup: string): Promise<number>;
   updateOffset(tenantId: string, consumerGroup: string, position: number): Promise<void>;
+  tryClaimLease(tenantId: string, consumerGroup: string, workerId: string, durationSeconds: number): Promise<boolean>;
+  releaseLease(tenantId: string, consumerGroup: string, workerId: string): Promise<void>;
 };
 
 export type EventDispatcher = {
@@ -21,6 +23,7 @@ export type EventDispatcher = {
 export class EventConsumerWorker {
   private isRunning = false;
   private currentTimeout?: NodeJS.Timeout;
+  private readonly workerId = crypto.randomUUID();
 
   constructor(
     private readonly source: EventSource,
@@ -28,7 +31,8 @@ export class EventConsumerWorker {
     private readonly localDispatcher: EventDispatcher,
     private readonly consumerGroup: string,
     private readonly tenantIds: string[],
-    private readonly pollIntervalMs: number = 1000
+    private readonly pollIntervalMs: number = 1000,
+    private readonly leaseDurationSeconds: number = 30
   ) {}
 
   start() {
@@ -63,28 +67,42 @@ export class EventConsumerWorker {
   }
 
   private async processTenant(tenantId: string) {
-    const lastPosition = await this.offsetStore.getOffset(tenantId, this.consumerGroup);
-    const unread = await this.source.getSince(tenantId, lastPosition);
+    /** contract: Coordination Claim */
+    const hasLease = await this.offsetStore.tryClaimLease(
+      tenantId, 
+      this.consumerGroup, 
+      this.workerId, 
+      this.leaseDurationSeconds
+    );
+    
+    if (!hasLease) return;
 
-    for (const { event, position } of unread) {
-      if (!this.isRunning) break;
+    try {
+      const lastPosition = await this.offsetStore.getOffset(tenantId, this.consumerGroup);
+      const unread = await this.source.getSince(tenantId, lastPosition);
 
-      try {
-        /** side-effect: Dispatch to local side-effects layer */
-        await this.localDispatcher.dispatchLocally(event);
-        
-        /** side-effect: Commit offset after successful processing */
-        await this.offsetStore.updateOffset(tenantId, this.consumerGroup, position);
-      } catch (err) {
-        logger.error("CONSUMER_EVENT_FAILED", { 
-          eventId: event.id, 
-          group: this.consumerGroup, 
-          position, 
-          error: String(err) 
-        });
-        // Stop processing this tenant's queue on failure to preserve ordering
-        throw err; 
+      for (const { event, position } of unread) {
+        if (!this.isRunning) break;
+
+        try {
+          /** side-effect: Dispatch to local side-effects layer */
+          await this.localDispatcher.dispatchLocally(event);
+          
+          /** side-effect: Commit offset after successful processing */
+          await this.offsetStore.updateOffset(tenantId, this.consumerGroup, position);
+        } catch (err) {
+          logger.error("CONSUMER_EVENT_FAILED", { 
+            eventId: event.id, 
+            group: this.consumerGroup, 
+            position, 
+            error: String(err) 
+          });
+          throw err; 
+        }
       }
+    } finally {
+      /** side-effect: Voluntary lease release */
+      await this.offsetStore.releaseLease(tenantId, this.consumerGroup, this.workerId);
     }
   }
 }

@@ -160,6 +160,22 @@ export function createSupabaseConsumerStore(connectionString: string) {
         ON CONFLICT (tenant_id, consumer_group) 
         DO UPDATE SET last_position = EXCLUDED.last_position, updated_at = CURRENT_TIMESTAMP
       `;
+    },
+    async tryClaimLease(tenantId: string, consumerGroup: string, workerId: string, durationSeconds: number): Promise<boolean> {
+      if (!tenantId) throw new Error("TENANT_ISOLATION_FAILURE: tenantId required");
+      const result = await sql`
+        SELECT core.try_claim_tenant_lease(
+          ${tenantId}, 
+          ${consumerGroup}, 
+          ${workerId}, 
+          ${durationSeconds + " seconds"}::interval
+        ) as success
+      `;
+      return result[0]?.success ?? false;
+    },
+    async releaseLease(tenantId: string, consumerGroup: string, workerId: string): Promise<void> {
+      if (!tenantId) throw new Error("TENANT_ISOLATION_FAILURE: tenantId required");
+      await sql`SELECT core.release_tenant_lease(${tenantId}, ${consumerGroup}, ${workerId})`;
     }
   };
 }
