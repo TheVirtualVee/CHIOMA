@@ -10,9 +10,11 @@ export type EventSource = {
 
 export type ConsumerOffsetStore = {
   getOffset(tenantId: string, consumerGroup: string): Promise<number>;
-  updateOffset(tenantId: string, consumerGroup: string, position: number): Promise<void>;
-  tryClaimLease(tenantId: string, consumerGroup: string, workerId: string, durationSeconds: number): Promise<boolean>;
+  updateOffset(tenantId: string, consumerGroup: string, position: number, workerId: string): Promise<boolean>;
+  tryClaimLease(tenantId: string, consumerGroup: string, workerId: string, durationSeconds: number): Promise<number>;
   releaseLease(tenantId: string, consumerGroup: string, workerId: string): Promise<void>;
+  checkSideEffect(eventId: string, serviceName: string): Promise<string | null>;
+  recordSideEffect(tenantId: string, event_id: string, serviceName: string, status: string, result?: any): Promise<void>;
 };
 
 export type EventDispatcher = {
@@ -38,7 +40,7 @@ export class EventConsumerWorker {
   start() {
     if (this.isRunning) return;
     this.isRunning = true;
-    logger.info("CONSUMER_STARTED", { group: this.consumerGroup });
+    logger.info("CONSUMER_STARTED", { group: this.consumerGroup, workerId: this.workerId });
     this.poll();
   }
 
@@ -47,7 +49,7 @@ export class EventConsumerWorker {
     if (this.currentTimeout) {
       clearTimeout(this.currentTimeout);
     }
-    logger.info("CONSUMER_STOPPED", { group: this.consumerGroup });
+    logger.info("CONSUMER_STOPPED", { group: this.consumerGroup, workerId: this.workerId });
   }
 
   private async poll() {
@@ -67,15 +69,15 @@ export class EventConsumerWorker {
   }
 
   private async processTenant(tenantId: string) {
-    /** contract: Coordination Claim */
-    const hasLease = await this.offsetStore.tryClaimLease(
+    /** contract: Fenced Coordination Claim */
+    const generationId = await this.offsetStore.tryClaimLease(
       tenantId, 
       this.consumerGroup, 
       this.workerId, 
       this.leaseDurationSeconds
     );
     
-    if (!hasLease) return;
+    if (generationId === 0) return;
 
     try {
       const lastPosition = await this.offsetStore.getOffset(tenantId, this.consumerGroup);
@@ -85,12 +87,25 @@ export class EventConsumerWorker {
         if (!this.isRunning) break;
 
         try {
+          /** constraint: Transactional Side-Effect Boundary */
+          const status = await this.offsetStore.checkSideEffect(event.id, this.consumerGroup);
+          if (status === "COMPLETED") continue;
+
+          await this.offsetStore.recordSideEffect(tenantId, event.id, this.consumerGroup, "PENDING");
+          
           /** side-effect: Dispatch to local side-effects layer */
           await this.localDispatcher.dispatchLocally(event);
+
+          await this.offsetStore.recordSideEffect(tenantId, event.id, this.consumerGroup, "COMPLETED");
           
-          /** side-effect: Commit offset after successful processing */
-          await this.offsetStore.updateOffset(tenantId, this.consumerGroup, position);
+          /** side-effect: Fenced offset commit */
+          const success = await this.offsetStore.updateOffset(tenantId, this.consumerGroup, position, this.workerId);
+          if (!success) {
+            logger.warn("FENCING_VIOLATION", { tenantId, group: this.consumerGroup, position });
+            break; 
+          }
         } catch (err) {
+          await this.offsetStore.recordSideEffect(tenantId, event.id, this.consumerGroup, "FAILED", { error: String(err) });
           logger.error("CONSUMER_EVENT_FAILED", { 
             eventId: event.id, 
             group: this.consumerGroup, 

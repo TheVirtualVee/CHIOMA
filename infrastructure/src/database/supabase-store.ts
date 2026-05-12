@@ -152,30 +152,43 @@ export function createSupabaseConsumerStore(connectionString: string) {
       `;
       return rows.length > 0 ? parseInt(rows[0].last_position, 10) : 0;
     },
-    async updateOffset(tenantId: string, consumerGroup: string, position: number): Promise<void> {
-      if (!tenantId) throw new Error("TENANT_ISOLATION_FAILURE: tenantId required");
-      await sql`
-        INSERT INTO core.consumer_offsets (tenant_id, consumer_group, last_position)
-        VALUES (${tenantId}, ${consumerGroup}, ${position})
-        ON CONFLICT (tenant_id, consumer_group) 
-        DO UPDATE SET last_position = EXCLUDED.last_position, updated_at = CURRENT_TIMESTAMP
-      `;
-    },
-    async tryClaimLease(tenantId: string, consumerGroup: string, workerId: string, durationSeconds: number): Promise<boolean> {
+    async updateOffset(tenantId: string, consumerGroup: string, position: number, workerId: string): Promise<boolean> {
       if (!tenantId) throw new Error("TENANT_ISOLATION_FAILURE: tenantId required");
       const result = await sql`
-        SELECT core.try_claim_tenant_lease(
+        SELECT core.update_offset_fenced(${tenantId}, ${consumerGroup}, ${position}, ${workerId}) as success
+      `;
+      return result[0]?.success ?? false;
+    },
+    async tryClaimLease(tenantId: string, consumerGroup: string, workerId: string, durationSeconds: number): Promise<number> {
+      if (!tenantId) throw new Error("TENANT_ISOLATION_FAILURE: tenantId required");
+      const result = await sql`
+        SELECT core.try_claim_tenant_lease_v2(
           ${tenantId}, 
           ${consumerGroup}, 
           ${workerId}, 
           ${durationSeconds + " seconds"}::interval
-        ) as success
+        ) as generation
       `;
-      return result[0]?.success ?? false;
+      return parseInt(result[0]?.generation ?? "0", 10);
     },
     async releaseLease(tenantId: string, consumerGroup: string, workerId: string): Promise<void> {
       if (!tenantId) throw new Error("TENANT_ISOLATION_FAILURE: tenantId required");
       await sql`SELECT core.release_tenant_lease(${tenantId}, ${consumerGroup}, ${workerId})`;
+    },
+    async checkSideEffect(eventId: string, serviceName: string): Promise<string | null> {
+      const rows = await sql`
+        SELECT status FROM core.side_effect_execution 
+        WHERE event_id = ${eventId} AND service_name = ${serviceName}
+      `;
+      return rows.length > 0 ? rows[0].status : null;
+    },
+    async recordSideEffect(tenantId: string, eventId: string, serviceName: string, status: string, result?: any): Promise<void> {
+      await sql`
+        INSERT INTO core.side_effect_execution (tenant_id, event_id, service_name, status, result)
+        VALUES (${tenantId}, ${eventId}, ${serviceName}, ${status}, ${sql.json(result || {})})
+        ON CONFLICT (event_id, service_name) 
+        DO UPDATE SET status = EXCLUDED.status, result = EXCLUDED.result, executed_at = CURRENT_TIMESTAMP
+      `;
     }
   };
 }
