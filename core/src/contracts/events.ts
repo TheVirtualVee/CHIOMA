@@ -54,6 +54,17 @@ export const EventSchema = z.object({
 export function assertDomainEvent(input: unknown): DomainEvent {
   const result = EventSchema.safeParse(input);
   if (!result.success) {
+    // Produce field-specific messages for the most critical fields so callers
+    // and tests get actionable errors (e.g. "tenantId required").
+    const issues = result.error.issues;
+    const tenantIssue = issues.find((i) => i.path.includes("tenantId"));
+    if (tenantIssue) {
+      throw new InvalidDomainEventError("INVALID_DOMAIN_EVENT: tenantId required");
+    }
+    const correlationIssue = issues.find((i) => i.path.includes("correlationId"));
+    if (correlationIssue) {
+      throw new InvalidDomainEventError("INVALID_DOMAIN_EVENT: correlationId required");
+    }
     throw new InvalidDomainEventError(`INVALID_DOMAIN_EVENT: ${result.error.message}`);
   }
   const e = result.data as DomainEvent;

@@ -47,6 +47,11 @@ export class ECBLoader {
     }
     return this.instance;
   }
+
+  /** Reset singleton — test teardown only. Allows fresh load between tests. */
+  static reset(): void {
+    this.instance = null;
+  }
 }
 
 function deepFreeze<T>(obj: T): T {

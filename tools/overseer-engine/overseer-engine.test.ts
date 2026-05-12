@@ -342,10 +342,12 @@ describe("Pipeline integration", () => {
     const result = enforce(cs, CORR);
     expect(result).toMatchObject({
       status: "APPROVED",
-      reason: "All validation rules passed",
-      risk_level: "LOW",
+      reason: "All rules passed.",
       correlationId: CORR,
     });
+    // riskScore is 0 for a clean changeset
+    expect(result.riskScore).toBe(0);
+    expect(Array.isArray(result.violations)).toBe(true);
     expect(Array.isArray(result.stepResults)).toBe(true);
   });
 });

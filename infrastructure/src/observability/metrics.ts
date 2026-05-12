@@ -45,7 +45,10 @@ export function createMetricsSink(): ChiomaMetrics {
     }),
     emit: (name, ctx) => {
       if (!ctx.tenantId || !ctx.service) {
-        // side-effect: log malformed metric
+        // side-effect: emit to console.warn so it is observable by tests and
+        // monitoring agents that hook console (intentional — metrics failures
+        // must be visible outside the structured log stream).
+        console.warn("METRICS_MALFORMED", { metric: name, ...ctx });
         logger.warn("METRICS_MALFORMED", { metric: name, ...ctx });
         return;
       }
