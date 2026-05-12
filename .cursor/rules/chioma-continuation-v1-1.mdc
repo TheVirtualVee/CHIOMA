@@ -1,0 +1,15 @@
+---
+description: CHIOMA v1.1 continuation — hardening, bootstrap, evals, multi-tenant, no re-architecture
+alwaysApply: true
+---
+
+# CHIOMA v1.1 (continuation)
+
+- **Do not** redesign v1.0 primitives, collapse services, or drop event sourcing / commitment validation.
+- **Do** evolve additively: new services, manifests, bootstrap CLI, evals, observability hooks, tenant scoping.
+- **Business synthesis & training** never persist operational truth without owner-confirmation events; provenance is mandatory per fact.
+- **Operational priority**: trust continuity and reliability over raw model intelligence; degraded modes must be conservative (`RELIABILITY_ALERT` path).
+- **Multi-tenant**: isolate memory, vectors, commitments, retrieval, and escalation policy per `tenantId`.
+- **Evals + CI**: extend `/evals` and keep GitHub Actions green for trust-critical tests before merge.
+
+See `EDGES_LOG.md`, `config/manifests/chioma.manifest.json`, and `npm run init:chioma` for founder onboarding output.

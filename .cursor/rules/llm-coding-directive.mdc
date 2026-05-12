@@ -1,0 +1,111 @@
+---
+description: Primary LLM coding protocol — triviality gate, intent anchor, TDD, production rules, audit trace
+alwaysApply: true
+---
+
+# LLM Coding Directive
+
+This protocol maximizes precision, semantic correctness, and production safety for any coding agent. Apply it as the primary directive before any project-specific rules.
+
+## Trivial task definition (non-negotiable)
+
+A task is trivial ONLY if ALL of these hold:
+
+- ≤3 lines of pure logic change
+- No conditionals, branches, or logic (including min/max/ternary)
+- No I/O, network, file, or state mutation
+- No external dependencies
+- No impact on any other file or function
+
+State explicit confirmation of every item before relaxing any rule. If any item fails, the task is NOT trivial.
+
+## 1. Semantic Intent Anchor
+
+Before any plan or code, state the core human goal in strict verb-object-outcome format including success and failure behavior.
+
+Example: "Validate email string contains '@' and valid domain, return normalized lowercase form or raise ValueError with specific message for each invalid case."
+
+Flag any divergence between literal request and real intent.
+
+## 2. Assumption Enforcement
+
+List every assumption.
+
+- For each, add a runtime assertion or guard that actually fails on realistic violation.
+- Provide one concrete counterexample that would trigger the assertion.
+- "Enforced by caller" is invalid unless caller code is edited in same session, its assertions are listed, and negative tests verify the full chain.
+
+## 3. Simplicity First
+
+Produce the smallest code that correctly fulfills the semantic intent with production robustness.
+
+- No extra features, abstractions, or flexibility unless explicitly requested.
+- Inline single-use logic. Abstract only after three repetitions.
+- Error handling limited to: SQL/command injection, auth bypass, path traversal, deserialization of untrusted data, null/empty/bounds, integer overflow, type coercion, crypto failures.
+
+## 4. Surgical Changes
+
+Modify only what is required for the request and intent.
+
+- Match existing style, naming, and formatting exactly.
+- Remove only imports/variables/functions made unused by your changes after verifying zero references across entire codebase.
+- Do not touch pre-existing dead code.
+- For high-severity anti-patterns (SQL injection, command injection, auth bypass, path traversal, deserialization of untrusted data, crypto failures): stop and request explicit permission to fix.
+
+## 5. Strict TDD
+
+Define complete contract upfront: input types, bounds, null/empty handling, numeric stability, encoding, output behavior, error types and messages.
+
+- Write actual executable test code BEFORE any implementation code.
+- Negative tests must assert specific correct failure behavior (exact exception type, message, or return value) and MUST FAIL on the initial broken code.
+- If a negative test passes before fixing, rewrite the test.
+
+## 6. Production Rules
+
+- Side effects: Label every one with "# SIDE EFFECT: [description]. Why necessary and unavoidable: [one sentence]."
+- Idempotency: Assume multiple calls. If not idempotent, either make it so or document exact failure mode and add guard. Document required locks if not thread-safe.
+- Resource bounds: If operation risks >1 second or >10MB, add runtime check/rejection or confirm user accepts risk.
+- Logging: Every non-immediate error path must log with level, function name, context/value, and unique error code.
+- External calls: Add timeout or explicitly note why unnecessary.
+- Stateful accumulation: Enforce max size or eviction policy.
+- Validation functions: Enforce and test full contract including unicode/encoding errors.
+
+## 7. Memory Anchor
+
+`EDGES_LOG.md` is mandatory for projects with more than one file.
+
+- Initialize with at least three concrete edge cases discovered during current analysis.
+- After discovering any new edge case during execution, log it immediately using append.
+- If file write fails, note it in the Audit Trace.
+- Reference relevant entries before changes.
+
+## 8. Output Format
+
+- Minimal reasoning only when necessary.
+- Code block.
+- Short verification summary.
+- Required Audit Trace (1-2 words per item):
+
+  Intent: [confirmed]  
+  Asserts: [N with counters]  
+  Tests: [pre-written, negatives failed initially]  
+  SideEffects: [labeled+justified or none]  
+  Idempotency: [stated or made safe]  
+  Resources: [bounded or risk accepted]  
+  Logging: [added where needed]  
+  EDGES: [immediate update confirmed]  
+  Checklist: [all passed]
+
+## Self-Audit Checklist (produce Audit Trace)
+
+- Intent anchored?
+- Assumptions listed with failing asserts + counterexamples?
+- Solution minimal and semantically correct?
+- Changes surgical and high-severity risks escalated?
+- Tests written before code; negative tests failed initially with correct assertions?
+- Side effects labeled with unavoidable justification? Idempotency and thread safety handled?
+- Resource bounds, logging, timeouts, state limits enforced?
+- EDGES_LOG.md initialized/updated immediately?
+- No rule broken without all four elements?
+
+Follow this protocol to achieve maximal accuracy, minimal diffs, and production-ready code.

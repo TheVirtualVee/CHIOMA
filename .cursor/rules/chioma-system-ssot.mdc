@@ -1,0 +1,307 @@
+---
+description: CHIOMA v1.0 — universal source of truth (architecture, events, services, commitments, memory)
+alwaysApply: true
+---
+
+# CHIOMA SYSTEM — UNIVERSAL SOURCE OF TRUTH (v1.0)
+
+## 0. SYSTEM DEFINITION
+
+You are generating a production-grade distributed system called CHIOMA.
+
+**CHIOMA is NOT:**
+
+- a chatbot
+- an agent framework
+- a CRM
+- a workflow automation tool
+
+**CHIOMA IS:**
+
+A stateful commercial trust system that operates as a bounded digital employee ("Chioma") inside WhatsApp-based business environments. It ensures continuity of customer interactions, enforces commitments, preserves business memory, and drives revenue reliability without hallucination or uncontrolled autonomy.
+
+## 1. CORE DESIGN PRINCIPLES (NON-NEGOTIABLE)
+
+- Commitments are the highest-priority system object.
+- No hallucinated promises are ever allowed.
+- All state changes MUST go through event sourcing.
+- LLMs are stateless and non-authoritative.
+- Safety is a parallel system boundary, not embedded logic.
+- Memory is structured, tiered, and relevance-scored.
+- Every action must be traceable via audit logs.
+- No service directly mutates database state without events.
+- System favors reliability over intelligence.
+
+## 2. SYSTEM ARCHITECTURE
+
+Generate the system as 8 isolated services:
+
+```text
+/services
+  ingestion-service
+  intent-service
+  context-compiler
+  llm-orchestrator
+  commitment-engine
+  memory-store
+  escalation-service
+  delivery-service
+
+/core
+  contracts
+  models
+  enums
+  policies
+  utils
+
+/infrastructure
+  event-bus
+  database
+  config
+  observability
+
+/workers
+  commitment-recovery
+  escalation-loop
+  memory-compaction
+```
+
+## 3. EVENT SOURCED SYSTEM (MANDATORY)
+
+All state transitions MUST be stored as immutable events.
+
+**Event Types:**
+
+- MESSAGE_RECEIVED
+- INTENT_CLASSIFIED
+- COMMITMENT_CREATED
+- COMMITMENT_UPDATED
+- COMMITMENT_RESOLVED
+- ESCALATION_TRIGGERED
+- RESPONSE_SENT
+- MEMORY_UPDATED
+
+## 4. CORE DATA MODELS
+
+### 4.1 Commitment Object
+
+A commitment is a tracked social obligation created through interaction.
+
+**Must include:**
+
+- origin (explicit or inferred)
+- type (booking, price check, follow-up, escalation, etc.)
+- ambiguity score
+- confidence score
+- deadline (explicit or inferred)
+- status (pending, in_progress, resolved, failed, escalated, abandoned)
+- escalation metadata
+- audit trail
+
+**CRITICAL RULE:** A commitment is only created if it passes validation.
+
+### 4.2 Customer State
+
+Stores only commercial-relevant identity:
+
+- purchase history
+- interaction history (summarized)
+- preference signals (behavioral, not personal traits)
+- contact identity
+
+No personal sensitive inference allowed.
+
+### 4.3 Business State
+
+Static + slowly changing business data:
+
+- products
+- pricing
+- policies
+- availability rules
+- escalation contacts
+- tone configuration
+
+## 5. MEMORY SYSTEM (3 TIERS)
+
+**HOT MEMORY**
+
+- active conversation
+- active commitments
+- session state
+
+**WARM MEMORY**
+
+- last 30–365 days interactions
+- purchase history
+- preference signals
+
+**COLD MEMORY**
+
+- archived logs
+- historical interactions (>1 year)
+
+**RULE:** Only HOT + relevant WARM memory is injected into LLM context.
+
+## 6. CONTEXT COMPILER (CORE ENGINE)
+
+The Context Compiler builds the LLM input context using strict layered assembly.
+
+**REQUIRED SUBSYSTEMS:**
+
+- retrieval (embedding search)
+- reranker (cross-encoder scoring)
+- relevance scorer
+- summarizer
+- token optimizer
+- safety filter (parallel)
+
+**CONTEXT BUILD ORDER (STRICT):**
+
+1. Safety Layer (always)
+2. Active Conversation
+3. Active Commitments
+4. Ranked Customer Memory
+5. Relevant Business Facts
+6. Behavioral Policy
+
+**RETRIEVAL PIPELINE:**
+
+- Vector search (top 100 results)
+- Cross-encoder rerank (top 20–50)
+- Relevance scoring: intent alignment; commitment relevance boost; recency weighting; business priority weighting
+
+**TOKEN RULE:** If token budget exceeded: compress WARM and COLD memory only — NEVER compress safety or commitments.
+
+## 7. LLM ORCHESTRATION LAYER
+
+The LLM is ONLY responsible for:
+
+**Input:** ContextPacket, User message
+
+**Output MUST be structured:**
+
+```json
+{
+  "response": "string",
+  "intent": "string",
+  "proposed_commitments": [],
+  "confidence": float
+}
+```
+
+**RULES:**
+
+- LLM cannot mutate state
+- LLM cannot persist memory
+- LLM cannot finalize commitments
+
+## 8. COMMITMENT ENGINE (CORE TRUST SYSTEM)
+
+**Responsibilities:**
+
+- create commitments ONLY after validation
+- update commitments via events
+- resolve commitments
+- fail commitments
+- track deadlines
+
+**VALIDATION GATE (CRITICAL)**
+
+A commitment MUST NOT be created unless:
+
+- business state supports it
+- feasibility is confirmed
+- ambiguity score is acceptable
+- system confidence threshold is met
+
+If validation fails → regenerate response with stricter constraints.
+
+## 9. COMMITMENT STATE MACHINE
+
+**Valid states:** pending, in_progress, escalated, resolved, failed, abandoned
+
+**Rules:**
+
+- transitions MUST be event-driven
+- no direct state mutation
+- all transitions logged
+
+## 10. ESCALATION SYSTEM (BACKGROUND WORKER)
+
+**Monitors:** overdue commitments; stalled workflows; missing human responses
+
+**Actions:** escalate to owner; notify customer; attempt recovery message; mark failure if unresolved
+
+## 11. DELIVERY SERVICE
+
+Handles external communication (WhatsApp).
+
+**Responsibilities:** send messages; confirm delivery; log events
+
+No business logic allowed.
+
+## 12. SAFETY SYSTEM (PARALLEL SERVICE)
+
+Must run: before context compilation; after LLM generation
+
+**Checks:** policy violations; unsafe outputs; sensitive data leakage
+
+Must be independent service, not embedded logic.
+
+## 13. SYSTEM EXECUTION PIPELINE
+
+Every message follows:
+
+INGESTION → INTENT CLASSIFICATION → COMMITMENT RESOLUTION (pre-context) → CONTEXT COMPILATION → LLM GENERATION → COMMITMENT EXTRACTION → VALIDATION GATE → MEMORY UPDATE → DELIVERY → AUDIT LOGGING
+
+## 14. BACKGROUND WORKERS
+
+- commitment-recovery-loop
+- escalation-loop
+- memory-compaction
+
+Must run independently of request pipeline.
+
+## 15. METRICS (SYSTEM HEALTH)
+
+Must implement:
+
+- Commitment Survival Rate (CSR) — PRIMARY success metric
+- Escalation accuracy
+- Response latency
+- Memory relevance score
+- Trust continuity index
+
+## 16. FAILURE HANDLING RULES
+
+System MUST explicitly handle: missing business data; ambiguous intent; delayed human response; conflicting memory; multi-intent messages
+
+**Default behavior:** escalate or request clarification — NEVER guess
+
+## 17. BOOT SEQUENCE
+
+On startup: Load business state → Hydrate memory store → Restore active commitments → Start event bus → Start workers → Activate ingestion layer → System ready
+
+## 18. CODE GENERATION INSTRUCTIONS
+
+When generating code:
+
+- Use strict modular separation
+- No service cross-imports except via contracts
+- All communication via JSON events/contracts
+- All state changes must pass event bus
+- No hidden side effects
+- All outputs must be structured
+- All services independently runnable
+- Maintain event sourcing everywhere
+
+## 19. FINAL SYSTEM IDENTITY
+
+CHIOMA is a commercial trust continuity engine that behaves like a bounded digital employee operating inside conversational infrastructure.
+
+**Its goal is NOT intelligence.**
+
+**Its goal is:** reliable business presence under uncertainty.
+
+**END OF SOURCE OF TRUTH**
