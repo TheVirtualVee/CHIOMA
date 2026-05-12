@@ -16,7 +16,10 @@
     "dev": "tsx tools/dev-pipeline.ts",
     "overseer:check": "tsx tools/overseer-engine/runner.ts",
     "overseer:test": "vitest tools/overseer-engine/overseer-engine.test.ts",
-    "init:chioma": "tsx cli/chioma-init/src/main.ts"
+    "init:chioma": "tsx cli/chioma-init/src/main.ts",
+    "db:push": "supabase db push --db-url \"$DATABASE_URL\"",
+    "db:pull": "supabase db pull --db-url \"$DATABASE_URL\"",
+    "db:reset": "supabase db reset --db-url \"$DATABASE_URL\""
   },
   "dependencies": {
     "@chioma/business-synthesis-engine": "*",
@@ -35,10 +38,12 @@
     "@chioma/reliability-engine": "*",
     "@chioma/worker-commitment-recovery": "*",
     "@chioma/worker-escalation-loop": "*",
-    "@chioma/worker-memory-compaction": "*"
+    "@chioma/worker-memory-compaction": "*",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "supabase": "^2.98.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

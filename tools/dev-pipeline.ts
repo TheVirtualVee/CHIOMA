@@ -1,4 +1,4 @@
-import { createAppendOnlyLog, createBus } from "@chioma/infrastructure";
+import { createAppendOnlyLog, createAuthorityBus, createSupabaseEventLog, createSupabaseProjectionStore, createInMemoryProjectionStore, createSupabaseConsumerStore, EventConsumerWorker } from "@chioma/infrastructure";
 import { publishBusinessSynthesisProposal, registerBusinessSynthesisEngine } from "@chioma/business-synthesis-engine";
 import { publishBusinessTrainingProposal, registerBusinessTrainingEngine } from "@chioma/business-training-engine";
 import { registerCommitmentEngine } from "@chioma/commitment-engine";
@@ -14,9 +14,29 @@ import { startCommitmentRecoveryWorker } from "@chioma/worker-commitment-recover
 import { startEscalationLoopWorker } from "@chioma/worker-escalation-loop";
 import { startMemoryCompactionWorker } from "@chioma/worker-memory-compaction";
 
+import dotenv from "dotenv";
+dotenv.config();
+
 async function main(): Promise<void> {
-  const log = createAppendOnlyLog();
-  const bus = createBus(log);
+  const dbUrl = process.env.DATABASE_URL;
+  const tenantId = "tenant_demo";
+  
+  // CHIOMA Event Source Authority Model Wiring
+  const log = dbUrl ? createSupabaseEventLog(dbUrl) : createAppendOnlyLog();
+  const projectionStore = dbUrl ? createSupabaseProjectionStore(dbUrl) : createInMemoryProjectionStore();
+  
+  console.log(`[BOOTSTRAP] Event Store Authority: ${dbUrl ? 'SUPABASE CLOUD' : 'IN-MEMORY STUB'}`);
+  
+  const bus = createAuthorityBus(log, undefined, projectionStore);
+
+  // Initialize Consumer Layer (Option A Side-Effect Isolation)
+  let consumerWorker: EventConsumerWorker | null = null;
+  if (dbUrl) {
+    const consumerStore = createSupabaseConsumerStore(dbUrl);
+    // Cast 'log' because in-memory log doesn't implement getSince. In production, we'd strict-type this.
+    consumerWorker = new EventConsumerWorker(log as any, consumerStore, bus, "chioma_core_services", [tenantId], 1000);
+    consumerWorker.start();
+  }
 
   registerBusinessSynthesisEngine(bus);
   registerBusinessTrainingEngine(bus);
@@ -41,13 +61,16 @@ async function main(): Promise<void> {
   await publishBusinessSynthesisProposal(bus, { correlationId, causationId: null, tenantId });
   await publishBusinessTrainingProposal(bus, { correlationId, causationId: null, tenantId });
 
-  const types = log.all().map((e) => e.type);
+  const types = log.all ? (await log.all()).map((e: any) => e.type) : ["DB_READ_NOT_IMPLEMENTED_FOR_DEV_LOG_YET"];
   // SIDE EFFECT: stdout for local smoke test. Why necessary and unavoidable: dev-pipeline has no other sink in scaffold.
   console.log("CHIOMA dev pipeline — event sequence:", types.join(" → "));
 
   stopRecovery();
   stopEscalation();
   stopCompaction();
+  if (consumerWorker) {
+    consumerWorker.stop();
+  }
 }
 main().catch((err) => {
   console.error(err);
