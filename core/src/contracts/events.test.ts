@@ -12,7 +12,20 @@ describe("assertDomainEvent", () => {
         correlationId: "c1",
         causationId: null,
       }),
-    ).toThrowError(/UNKNOWN_EVENT_TYPE/);
+    ).toThrowError(/INVALID_DOMAIN_EVENT/);
+  });
+
+  it("rejects missing tenantId", () => {
+    expect(() =>
+      assertDomainEvent({
+        id: "e1",
+        type: EVENT_TYPES.MESSAGE_RECEIVED,
+        occurredAt: new Date().toISOString(),
+        payload: {},
+        correlationId: "c1",
+        causationId: null,
+      }),
+    ).toThrowError(/tenantId required/);
   });
 
   it("accepts a minimal BUSINESS_SYNTHESIS_PROPOSED envelope", () => {
@@ -37,7 +50,9 @@ describe("assertDomainEvent", () => {
       payload: { channel: "whatsapp", text: "hi" },
       correlationId: "c1",
       causationId: null,
+      tenantId: "tenant_b",
     });
     expect(e.type).toBe(EVENT_TYPES.MESSAGE_RECEIVED);
+    expect(e.tenantId).toBe("tenant_b");
   });
 });

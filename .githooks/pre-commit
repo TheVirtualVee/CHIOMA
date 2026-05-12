@@ -1,0 +1,28 @@
+#!/bin/sh
+# CHIOMA OVERSEER ENGINE — PRE-COMMIT HOOK
+# Enforces codebase integrity before every commit.
+
+# Skip if OVERSEER_SKIP=1
+if [ "$OVERSEER_SKIP" = "1" ]; then
+  exit 0
+fi
+
+echo "🛡️  CHIOMA Overseer: Validating staged changes..."
+
+# Run the overseer engine in --staged mode
+npm run overseer:check -- --staged
+
+# Capture exit code
+RESULT=$?
+
+if [ $RESULT -ne 0 ]; then
+  echo ""
+  echo "❌ CHIOMA Overseer REJECTED your commit."
+  echo "Please fix the violations listed above before committing."
+  echo "To bypass (CRITICAL EMERGENCY ONLY): git commit --no-verify or set OVERSEER_SKIP=1"
+  echo ""
+  exit 1
+fi
+
+echo "✅ CHIOMA Overseer APPROVED."
+exit 0

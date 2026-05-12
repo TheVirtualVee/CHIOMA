@@ -1,21 +1,27 @@
 import { EVENT_TYPES, type EventBus, type LlmStructuredOutput } from "@chioma/core";
-import { createConsoleLogger, devEvent } from "@chioma/infrastructure";
+import { createConsoleLogger, devEvent, metrics } from "@chioma/infrastructure";
 
+/** contract: DeliveryService */
 export function registerDeliveryService(bus: EventBus): void {
-  const log = createConsoleLogger("delivery-service");
-  bus.subscribe(EVENT_TYPES.MEMORY_UPDATED, async (e) => {
-    const p = e.payload as { kind?: string; structured?: LlmStructuredOutput } | null;
-    if (p?.kind !== "LLM_COMPLETED" || !p.structured) return;
+  const logger = createConsoleLogger("delivery-service");
 
-    log.info("RESPONSE_SENT", { correlationId: e.correlationId });
+  bus.subscribe(EVENT_TYPES.MEMORY_UPDATED, async (event) => {
+    const payload = event.payload as { kind?: string; structured?: LlmStructuredOutput } | null;
+    if (payload?.kind !== "LLM_COMPLETED" || !payload.structured) return;
+
+    const { tenantId, correlationId, id: causationId } = event;
+
+    logger.info("RESPONSE_SENT", { correlationId, tenantId, causationId });
+    metrics.emit("message_delivered", { correlationId, tenantId, causationId, service: "delivery-service" });
+
     await bus.publish(
       devEvent(
-        `del_${e.id}`,
+        `del_${event.id}`,
         EVENT_TYPES.RESPONSE_SENT,
-        { channel: "whatsapp", text: p.structured.response },
-        e.correlationId,
-        e.id,
-        e.tenantId,
+        { channel: "whatsapp", text: payload.structured.response },
+        correlationId,
+        event.id,
+        tenantId,
       ),
     );
   });

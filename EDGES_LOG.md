@@ -19,3 +19,9 @@ Append-only operational notes for agents and humans. Update when new edges are d
 7. **v1.1 tenant + provenance** — `tenantId` on envelopes is mandatory for production projections; synthesis/training proposals carry `provenance[].verified_by_owner === false` until `BUSINESS_STATE_OWNER_CONFIRMED` (or equivalent) events apply patches. Cross-tenant reads are a severity-1 incident: always scope retrieval by tenant.
 
 8. **AGENTS.md as universal entrant** — All agentic tools must treat root `AGENTS.md` as the single front door; the Engineering Constitution is the behavioral governor for the whole repo. Forks that drop `AGENTS.md` lose mandatory governance until restored.
+
+- **Overseer Engine Determinism**: The overseer must remain stateless and deterministic. Any reliance on dynamic state (like git branch or time) in core rules will break replay safety of the enforcement logic itself.
+- **Agent Enforcement Loop**: Agents are now required by Cursor Rule to run 
+pm run overseer:check before completion. Failure to do so bypasses the primary trust gate of CHIOMA v1.1.
+- **RegExp State Leakage**: When using global regexes (/g), always use 
+ew RegExp() or .test() on non-global instances to avoid lastIndex state leakage across multiple file scans in the same process.

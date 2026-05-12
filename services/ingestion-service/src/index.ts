@@ -1,15 +1,24 @@
 import { EVENT_TYPES, type EventBus } from "@chioma/core";
-import { createConsoleLogger, devEvent } from "@chioma/infrastructure";
+import { createConsoleLogger, devEvent, metrics } from "@chioma/infrastructure";
 
+/** contract: IngestionService */
 export function createIngestionApi(bus: EventBus) {
-  const log = createConsoleLogger("ingestion-service");
+  const logger = createConsoleLogger("ingestion-service");
   return {
-    async receiveWhatsAppText(text: string, correlationId: string, tenantId?: string): Promise<void> {
+    async receiveWhatsAppText(text: string, correlationId: string, tenantId: string): Promise<void> {
       const id = `msg_${correlationId}`;
-      log.info("MESSAGE_RECEIVED", { correlationId, id, tenantId });
+      const causationId = null;
+
+      logger.info("MESSAGE_RECEIVED", { correlationId, id, tenantId });
+      metrics.emit("message_ingested", { correlationId, tenantId, service: "ingestion-service" });
+
       await bus.publish(
-        devEvent(id, EVENT_TYPES.MESSAGE_RECEIVED, { channel: "whatsapp", text }, correlationId, null, tenantId),
+        devEvent(id, EVENT_TYPES.MESSAGE_RECEIVED, { channel: "whatsapp", text }, correlationId, causationId, tenantId),
       );
     },
   };
+}
+
+export function registerIngestionService(bus: EventBus): void {
+  // side-effect: service registration
 }

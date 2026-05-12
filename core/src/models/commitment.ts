@@ -1,5 +1,6 @@
 import type { CommitmentSeverity } from "../enums/commitment-severity.js";
 import { resolveCommitmentPolicy, type CommitmentPolicyShape } from "../policies/commitment-policy.js";
+import { DefaultIdFactory } from "../contracts/context.js";
 
 export type CommitmentOrigin = "explicit" | "inferred";
 
@@ -41,11 +42,11 @@ export type CommitmentAuditEntry = {
   detail?: unknown;
 };
 
+/** contract: Commitment */
 export type Commitment = {
   id: string;
   origin: CommitmentOrigin;
   type: CommitmentType;
-  /** v1.1 — drives validation strictness and escalation defaults */
   severity: CommitmentSeverity;
   ambiguityScore: number;
   confidenceScore: number;
@@ -55,10 +56,10 @@ export type Commitment = {
   auditTrail: CommitmentAuditEntry[];
 };
 
+/** contract: CommitmentCandidate */
 export type CommitmentCandidate = {
   origin: CommitmentOrigin;
   type: CommitmentType;
-  /** Defaults to MEDIUM when omitted (v1.1 additive) */
   severity?: CommitmentSeverity;
   ambiguityScore: number;
   confidenceScore: number;
@@ -83,9 +84,10 @@ export type CommitmentValidationResult =
   | { ok: false; error: CommitmentValidationError };
 
 function newId(): string {
-  return `cmt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return DefaultIdFactory.nextId("cmt");
 }
 
+/** constraint: validation gate */
 export function validateCommitmentCandidate(
   candidate: CommitmentCandidate,
   policyOverrides?: Partial<CommitmentPolicyShape>,

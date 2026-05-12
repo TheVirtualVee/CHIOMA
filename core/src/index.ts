@@ -1,3 +1,4 @@
+export * from "./contracts/context.js";
 export * from "./contracts/events.js";
 export * from "./contracts/ports.js";
 export * from "./contracts/llm.js";
@@ -7,3 +8,4 @@ export * from "./enums/commitment-severity.js";
 export * from "./models/commitment.js";
 export * from "./policies/commitment-policy.js";
 export * from "./policies/commitment-severity-policy.js";
+export * from "./execution/execution-mapper.js";

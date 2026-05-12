@@ -5,3 +5,4 @@ export * from "./observability/tracing.js";
 export * from "./config/env.js";
 export * from "./database/stores.js";
 export * from "./bootstrap/index.js";
+export * from "./observability/overseer-bridge.js";

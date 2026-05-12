@@ -7,13 +7,9 @@ export const EVENT_TYPES = {
   ESCALATION_TRIGGERED: "ESCALATION_TRIGGERED",
   RESPONSE_SENT: "RESPONSE_SENT",
   MEMORY_UPDATED: "MEMORY_UPDATED",
-  /** v1.1 — extracted business proposals; never authoritative until owner confirms */
   BUSINESS_SYNTHESIS_PROPOSED: "BUSINESS_SYNTHESIS_PROPOSED",
-  /** v1.1 — owner-approved patches applied via projections only */
   BUSINESS_STATE_OWNER_CONFIRMED: "BUSINESS_STATE_OWNER_CONFIRMED",
-  /** v1.1 — conversational policy proposals pending confirmation */
   BUSINESS_TRAINING_PROPOSED: "BUSINESS_TRAINING_PROPOSED",
-  /** v1.1 — reliability / degraded-mode signals */
   RELIABILITY_ALERT: "RELIABILITY_ALERT",
 } as const;
 
@@ -21,6 +17,7 @@ export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];
 
 const ALL_EVENT_TYPES: readonly EventType[] = Object.values(EVENT_TYPES);
 
+/** contract: DomainEvent */
 export type DomainEvent<T extends EventType = EventType> = {
   id: string;
   type: T;
@@ -28,40 +25,73 @@ export type DomainEvent<T extends EventType = EventType> = {
   payload: unknown;
   correlationId: string;
   causationId: string | null;
-  /** v1.1 — mandatory for production projections; optional during early scaffold */
-  tenantId?: string;
+  tenantId: string;
 };
 
 export class InvalidDomainEventError extends Error {
-  readonly code = "UNKNOWN_EVENT_TYPE" as const;
+  readonly code = "INVALID_DOMAIN_EVENT" as const;
   constructor(message: string) {
     super(message);
     this.name = "InvalidDomainEventError";
   }
 }
 
+import { z } from "zod";
+import { DefaultIdFactory } from "./context.js";
+
+export const EventSchema = z.object({
+  id: z.string().min(1),
+  type: z.string(),
+  occurredAt: z.string().datetime(),
+  payload: z.unknown(),
+  correlationId: z.string().min(1),
+  causationId: z.string().nullable(),
+  tenantId: z.string().min(1),
+});
+
 export function assertDomainEvent(input: unknown): DomainEvent {
-  if (!input || typeof input !== "object") {
-    throw new InvalidDomainEventError("UNKNOWN_EVENT_TYPE: event must be an object");
+  const result = EventSchema.safeParse(input);
+  if (!result.success) {
+    throw new InvalidDomainEventError(`INVALID_DOMAIN_EVENT: ${result.error.message}`);
   }
-  const e = input as Partial<DomainEvent>;
-  if (typeof e.type !== "string" || !ALL_EVENT_TYPES.includes(e.type as EventType)) {
-    throw new InvalidDomainEventError(`UNKNOWN_EVENT_TYPE: ${String(e.type)}`);
+  const e = result.data as DomainEvent;
+  if (!ALL_EVENT_TYPES.includes(e.type as EventType)) {
+    throw new InvalidDomainEventError(`INVALID_DOMAIN_EVENT: unknown type: ${String(e.type)}`);
   }
-  if (typeof e.id !== "string" || e.id.length === 0) {
-    throw new InvalidDomainEventError("UNKNOWN_EVENT_TYPE: id required");
-  }
-  if (typeof e.occurredAt !== "string") {
-    throw new InvalidDomainEventError("UNKNOWN_EVENT_TYPE: occurredAt required");
-  }
-  if (typeof e.correlationId !== "string" || e.correlationId.length === 0) {
-    throw new InvalidDomainEventError("UNKNOWN_EVENT_TYPE: correlationId required");
-  }
-  if (e.causationId !== null && typeof e.causationId !== "string") {
-    throw new InvalidDomainEventError("UNKNOWN_EVENT_TYPE: causationId invalid");
-  }
-  if (e.tenantId !== undefined && typeof e.tenantId !== "string") {
-    throw new InvalidDomainEventError("UNKNOWN_EVENT_TYPE: tenantId invalid");
-  }
-  return e as DomainEvent;
+  return e;
+}
+
+export function createEvent<T extends EventType>(
+  type: T,
+  payload: unknown,
+  tenantId: string,
+  correlationId?: string,
+): DomainEvent<T> {
+  const id = DefaultIdFactory.nextId("ev");
+  return {
+    id,
+    type,
+    occurredAt: new Date().toISOString(),
+    payload,
+    correlationId: correlationId || id,
+    causationId: null,
+    tenantId,
+  };
+}
+
+/** constraint: preserves lineage */
+export function createFollowupEvent<T extends EventType>(
+  type: T,
+  payload: unknown,
+  trigger: DomainEvent,
+): DomainEvent<T> {
+  return {
+    id: DefaultIdFactory.nextId("ev"),
+    type,
+    occurredAt: new Date().toISOString(),
+    payload,
+    correlationId: trigger.correlationId,
+    causationId: trigger.id,
+    tenantId: trigger.tenantId,
+  };
 }

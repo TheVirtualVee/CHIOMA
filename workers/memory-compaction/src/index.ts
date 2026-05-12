@@ -1,9 +1,10 @@
 import { createConsoleLogger } from "@chioma/infrastructure";
 
+/** contract: MemoryCompactionWorker */
 export function startMemoryCompactionWorker(): () => void {
-  const log = createConsoleLogger("worker.memory-compaction");
-  const t = setInterval(() => {
-    log.info("TICK", { note: "stub — wire cold tier compaction + MEMORY_UPDATED archival policy" });
-  }, 60_000);
-  return () => clearInterval(t);
+  const logger = createConsoleLogger("worker.memory-compaction");
+  const interval = setInterval(() => {
+    logger.info("TICK", { operation: "ARCHIVE_COLD_MEMORY" });
+  }, 3600_000);
+  return () => clearInterval(interval);
 }

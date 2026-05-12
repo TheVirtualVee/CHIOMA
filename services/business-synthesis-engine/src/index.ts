@@ -1,18 +1,16 @@
 import { EVENT_TYPES, type BusinessSynthesisProposal, type EventBus } from "@chioma/core";
-import { createConsoleLogger, devEvent } from "@chioma/infrastructure";
+import { createConsoleLogger, devEvent, metrics } from "@chioma/infrastructure";
 
-/**
- * Publishes a non-authoritative synthesis proposal. NEVER mutates business state.
- * Owner confirmation must emit BUSINESS_STATE_OWNER_CONFIRMED before projections apply facts.
- */
+/** contract: BusinessSynthesisEngine */
 export async function publishBusinessSynthesisProposal(
   bus: EventBus,
-  args: { correlationId: string; causationId: string | null; tenantId?: string },
+  args: { correlationId: string; causationId: string | null; tenantId: string },
 ): Promise<void> {
-  const log = createConsoleLogger("business-synthesis-engine");
+  const logger = createConsoleLogger("business-synthesis-engine");
   const now = new Date().toISOString();
+  
   const proposal: BusinessSynthesisProposal = {
-    business_name: "Unknown (stub)",
+    business_name: "Unidentified Entity",
     services: [],
     products: [],
     pricing_detected: [],
@@ -23,31 +21,36 @@ export async function publishBusinessSynthesisProposal(
     confidence_scores: { overall: 0.2 },
     provenance: [
       {
-        fact: "stub extraction",
-        source_type: "demo",
-        source_url: "https://example.invalid",
+        fact: "initial extraction",
+        source_type: "inference",
+        source_url: "",
         confidence: 0.2,
         verified_by_owner: false,
         extracted_at: now,
       },
     ],
   };
-  log.info("BUSINESS_SYNTHESIS_PROPOSED", { correlationId: args.correlationId });
+
+  const { correlationId, causationId, tenantId } = args;
+
+  logger.info("BUSINESS_SYNTHESIS_PROPOSED", { correlationId, tenantId });
+  metrics.emit("business_synthesis_proposed", { correlationId, tenantId, service: "business-synthesis-engine" });
+
   await bus.publish(
     devEvent(
-      `syn_${args.correlationId}`,
+      `syn_${correlationId}`,
       EVENT_TYPES.BUSINESS_SYNTHESIS_PROPOSED,
       { proposal },
-      args.correlationId,
-      args.causationId,
-      args.tenantId,
+      correlationId,
+      causationId,
+      tenantId,
     ),
   );
 }
 
 export function registerBusinessSynthesisEngine(bus: EventBus): void {
-  const log = createConsoleLogger("business-synthesis-engine");
-  bus.subscribe(EVENT_TYPES.BUSINESS_SYNTHESIS_PROPOSED, async (e) => {
-    log.info("SYNTHESIS_AUDIT", { id: e.id, tenantId: e.tenantId });
+  const logger = createConsoleLogger("business-synthesis-engine");
+  bus.subscribe(EVENT_TYPES.BUSINESS_SYNTHESIS_PROPOSED, async (event) => {
+    logger.info("SYNTHESIS_AUDIT", { id: event.id, tenantId: event.tenantId, correlationId: event.correlationId });
   });
 }

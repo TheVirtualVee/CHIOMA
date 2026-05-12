@@ -1,6 +1,4 @@
-/**
- * v1.1 — hybrid retrieval scoring: semantic * symbolic * business * recency_decay (pgvector hooks land here later).
- */
+/** contract: HybridRetrieval */
 export type HybridRetrievalInput = {
   semanticTopK: number;
   symbolicCommitmentIds: string[];
@@ -8,6 +6,7 @@ export type HybridRetrievalInput = {
   businessEntityIds: string[];
 };
 
+/** constraint: recency decay logic */
 export function recencyDecay(ageMs: number, halfLifeMs: number): number {
   if (halfLifeMs <= 0) return 0;
   return Math.pow(0.5, ageMs / halfLifeMs);

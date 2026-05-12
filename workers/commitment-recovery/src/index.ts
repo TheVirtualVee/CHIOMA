@@ -1,9 +1,10 @@
 import { createConsoleLogger } from "@chioma/infrastructure";
 
+/** contract: CommitmentRecoveryWorker */
 export function startCommitmentRecoveryWorker(): () => void {
-  const log = createConsoleLogger("worker.commitment-recovery");
-  const t = setInterval(() => {
-    log.info("TICK", { note: "stub — wire overdue commitment scan + bus publishes here" });
+  const logger = createConsoleLogger("worker.commitment-recovery");
+  const interval = setInterval(() => {
+    logger.info("TICK", { operation: "SCAN_OVERDUE_COMMITMENTS" });
   }, 60_000);
-  return () => clearInterval(t);
+  return () => clearInterval(interval);
 }

@@ -1,0 +1,45 @@
+---
+description: Overseer Engine — Automated enforcement of CHIOMA integrity rules (Production-only, deterministic, zero-stub)
+alwaysApply: true
+---
+
+# CHIOMA OVERSEER ENGINE — AGENT DIRECTIVE
+
+You are an agent operating within the CHIOMA trust ecosystem.
+This repository is protected by the **Overseer Engine**, a deterministic enforcement system.
+
+## MANDATORY INVOCATION
+
+Every time you finish a task, or before you signal "ready" to the user, you MUST run the Overseer Engine to validate your changes.
+
+**Command:**
+```bash
+npm run overseer:check -- --files <list of files you modified>
+```
+
+## ENFORCEMENT RULES (SUMMARY)
+
+The engine enforces:
+1. **No Stubs:** TODO, FIXME, mock, and placeholders are forbidden.
+2. **No Silent Failure:** catch blocks must re-throw or log properly.
+3. **Event Integrity:** events must have tenantId, correlationId, causationId.
+4. **Tenant Isolation:** all DB queries must be scoped by tenantId.
+5. **LLM Validation:** LLM output must be parsed via Zod or equivalent.
+6. **No Dead Code:** unused branches and unreachable code are rejected.
+7. **No Drift:** services communicate only via @chioma/core.
+8. **Observability:** every service must emit logs and metrics.
+9. **No Infinite Loops:** unbounded retries and loops are blocked.
+10. **Production Complete:** console.log is forbidden in services.
+
+## REJECTION PROTOCOL
+
+If the engine returns `REJECTED`:
+- You MUST fix the violations.
+- You are NOT allowed to "explain away" a rejection.
+- You are NOT allowed to "ignore" a rejection.
+
+## DESIGN PHILOSOPHY
+
+> CHIOMA is a deterministic trust system. Ambiguity is rejection. Partial correctness is rejection.
+
+Run `npm run overseer:check` NOW if you have made changes.

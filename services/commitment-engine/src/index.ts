@@ -1,5 +1,6 @@
 import {
   EVENT_TYPES,
+  createFollowupEvent,
   type CommitmentCandidate,
   type EventBus,
   type LlmStructuredOutput,
@@ -7,7 +8,7 @@ import {
   isCommitmentType,
   validateCommitmentCandidate,
 } from "@chioma/core";
-import { createConsoleLogger, devEvent } from "@chioma/infrastructure";
+import { createConsoleLogger, createSafeHandler, metrics } from "@chioma/infrastructure";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && !Array.isArray(v);
@@ -24,8 +25,10 @@ function parseCommitmentCandidate(raw: unknown): CommitmentCandidate | null {
   const feasibilityConfirmed = raw.feasibilityConfirmed === true;
   const severity =
     typeof raw.severity === "string" && isCommitmentSeverity(raw.severity) ? raw.severity : undefined;
+  
   if (!origin || !type || !Number.isFinite(ambiguityScore) || !Number.isFinite(confidenceScore)) return null;
   if (!deadlineIso) return null;
+  
   return {
     origin,
     type,
@@ -38,38 +41,48 @@ function parseCommitmentCandidate(raw: unknown): CommitmentCandidate | null {
   };
 }
 
+/** contract: CommitmentEngine */
 export function registerCommitmentEngine(bus: EventBus): void {
-  const log = createConsoleLogger("commitment-engine");
-  bus.subscribe(EVENT_TYPES.MEMORY_UPDATED, async (e) => {
-    const p = e.payload as { kind?: string; structured?: LlmStructuredOutput } | null;
-    if (p?.kind !== "LLM_COMPLETED" || !p.structured) return;
+  const logger = createConsoleLogger("commitment-engine");
 
-    const proposals = Array.isArray(p.structured.proposed_commitments)
-      ? p.structured.proposed_commitments
-      : [];
+  bus.subscribe(
+    EVENT_TYPES.MEMORY_UPDATED,
+    createSafeHandler(
+      async (event) => {
+        const payload = event.payload as { kind?: string; structured?: LlmStructuredOutput } | null;
+        if (payload?.kind !== "LLM_COMPLETED" || !payload.structured) return;
 
-    for (const raw of proposals) {
-      const candidate = parseCommitmentCandidate(raw);
-      if (!candidate) {
-        log.warn("COMMITMENT_PARSE_FAILED", { correlationId: e.correlationId });
-        continue;
-      }
-      const result = validateCommitmentCandidate(candidate);
-      if (!result.ok) {
-        log.warn("COMMITMENT_REJECTED", { correlationId: e.correlationId, code: result.error.code });
-        continue;
-      }
-      log.info("COMMITMENT_CREATED", { correlationId: e.correlationId, commitmentId: result.value.id });
-      await bus.publish(
-        devEvent(
-          `cmt_${result.value.id}`,
-          EVENT_TYPES.COMMITMENT_CREATED,
-          { commitment: result.value },
-          e.correlationId,
-          e.id,
-          e.tenantId,
-        ),
-      );
-    }
-  });
+        const { tenantId, correlationId, id: causationId } = event;
+        const proposals = Array.isArray(payload.structured.proposed_commitments)
+          ? payload.structured.proposed_commitments
+          : [];
+
+        for (const raw of proposals) {
+          const candidate = parseCommitmentCandidate(raw);
+          if (!candidate) {
+            logger.warn("COMMITMENT_PARSE_FAILED", { correlationId, tenantId, causationId });
+            continue;
+          }
+          
+          const result = validateCommitmentCandidate(candidate);
+          if (!result.ok) {
+            logger.warn("COMMITMENT_REJECTED", { correlationId, tenantId, causationId, code: result.error.code });
+            metrics.emit("commitment_rejected", { correlationId, tenantId, causationId, code: result.error.code, service: "commitment-engine" });
+            continue;
+          }
+          
+          metrics.emit("commitment_validated", { correlationId, tenantId, causationId, service: "commitment-engine" });
+          
+          await bus.publish(
+            createFollowupEvent(
+              EVENT_TYPES.COMMITMENT_CREATED,
+              { commitment: result.value },
+              event
+            )
+          );
+        }
+      },
+      { service: "commitment-engine", operation: "PROCESS_COMMITMENTS", logger }
+    )
+  );
 }

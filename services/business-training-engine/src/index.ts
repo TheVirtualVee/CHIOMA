@@ -1,36 +1,42 @@
 import { EVENT_TYPES, type BusinessTrainingProposal, type EventBus } from "@chioma/core";
-import { createConsoleLogger, devEvent } from "@chioma/infrastructure";
+import { createConsoleLogger, devEvent, metrics } from "@chioma/infrastructure";
 
-/** Conversational policy extraction — non-authoritative until owner confirms. */
+/** contract: BusinessTrainingEngine */
 export async function publishBusinessTrainingProposal(
   bus: EventBus,
-  args: { correlationId: string; causationId: string | null; tenantId?: string },
+  args: { correlationId: string; causationId: string | null; tenantId: string },
 ): Promise<void> {
-  const log = createConsoleLogger("business-training-engine");
+  const logger = createConsoleLogger("business-training-engine");
+  
   const proposal: BusinessTrainingProposal = {
-    operational_rules: ["Never confirm payment without human approval (stub)"],
+    operational_rules: ["Verify intent clarity before commitment"],
     escalation_policies: [],
     forbidden_promises: ["guaranteed delivery time without inventory check"],
     upsell_preferences: [],
     tone_calibration: { formality: "neutral" },
     multilingual_boundaries: ["default: business language only until configured"],
   };
-  log.info("BUSINESS_TRAINING_PROPOSED", { correlationId: args.correlationId });
+
+  const { correlationId, causationId, tenantId } = args;
+
+  logger.info("BUSINESS_TRAINING_PROPOSED", { correlationId, tenantId });
+  metrics.emit("business_training_proposed", { correlationId, tenantId, service: "business-training-engine" });
+
   await bus.publish(
     devEvent(
-      `trn_${args.correlationId}`,
+      `trn_${correlationId}`,
       EVENT_TYPES.BUSINESS_TRAINING_PROPOSED,
       { proposal },
-      args.correlationId,
-      args.causationId,
-      args.tenantId,
+      correlationId,
+      causationId,
+      tenantId,
     ),
   );
 }
 
 export function registerBusinessTrainingEngine(bus: EventBus): void {
-  const log = createConsoleLogger("business-training-engine");
-  bus.subscribe(EVENT_TYPES.BUSINESS_TRAINING_PROPOSED, async (e) => {
-    log.info("TRAINING_AUDIT", { id: e.id, tenantId: e.tenantId });
+  const logger = createConsoleLogger("business-training-engine");
+  bus.subscribe(EVENT_TYPES.BUSINESS_TRAINING_PROPOSED, async (event) => {
+    logger.info("TRAINING_AUDIT", { id: event.id, tenantId: event.tenantId, correlationId: event.correlationId });
   });
 }

@@ -1,12 +1,11 @@
-/**
- * v1.1 — compress ONLY warm/cold tiers; never drop commitments/safety (enforced by caller).
- */
+/** contract: WarmColdSummarize */
 export type WarmColdSummarizeInput = {
   warmInteractions: unknown[];
   coldArchive: unknown[];
   tokenBudget: number;
 };
 
+/** constraint: compress only non-critical tiers */
 export function summarizeWarmColdOnly(input: WarmColdSummarizeInput): {
   compressedWarm: unknown[];
   compressedCold: unknown[];

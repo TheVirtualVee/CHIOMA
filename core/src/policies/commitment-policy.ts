@@ -1,7 +1,7 @@
 import { policyForSeverity } from "./commitment-severity-policy.js";
 import type { CommitmentSeverity } from "../enums/commitment-severity.js";
 
-/** Backward-compatible default = MEDIUM thresholds (v1.0 behavior). */
+/** constraint: Default threshold policy */
 export const DEFAULT_COMMITMENT_POLICY = policyForSeverity("MEDIUM");
 
 export type CommitmentPolicyShape = {

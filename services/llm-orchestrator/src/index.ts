@@ -1,11 +1,29 @@
-import { EVENT_TYPES, type EventBus, type LlmStructuredOutput } from "@chioma/core";
-import { createConsoleLogger, devEvent } from "@chioma/infrastructure";
+import { EVENT_TYPES, mapInstruction, type EventBus, type LlmStructuredOutput } from "@chioma/core";
+import { createConsoleLogger, devEvent, metrics, overseer } from "@chioma/infrastructure";
 
+/** contract: LlmOrchestrator */
 export function registerLlmOrchestrator(bus: EventBus): void {
-  const log = createConsoleLogger("llm-orchestrator");
-  bus.subscribe(EVENT_TYPES.MEMORY_UPDATED, async (e) => {
-    const p = e.payload as { kind?: string } | null;
-    if (p?.kind !== "CONTEXT_SNAPSHOT") return;
+  const logger = createConsoleLogger("llm-orchestrator");
+
+  bus.subscribe(EVENT_TYPES.MEMORY_UPDATED, async (event) => {
+    const payload = event.payload as { kind?: string; text?: string } | null;
+    if (payload?.kind !== "CONTEXT_SNAPSHOT") return;
+
+    const input = payload.text ?? "";
+    const intent = mapInstruction(input);
+
+    if (intent === "NO_OP") {
+      logger.info("CEM_NO_OP", { correlationId: event.correlationId, reason: "No executable intent detected" });
+      return;
+    }
+
+    const validated = overseer.validate(intent, input);
+    if (!validated.ok) {
+      logger.warn("CEM_VALIDATION_FAILURE", { correlationId: event.correlationId, reason: validated.reason });
+      return;
+    }
+
+    const { tenantId, correlationId, id: causationId } = event;
 
     const structured: LlmStructuredOutput = {
       response: "Thanks — I can help with that. No promises recorded yet.",
@@ -25,15 +43,17 @@ export function registerLlmOrchestrator(bus: EventBus): void {
       confidence: 0.86,
     };
 
-    log.info("LLM_COMPLETED", { correlationId: e.correlationId });
+    logger.info("LLM_COMPLETED", { correlationId, tenantId, causationId });
+    metrics.emit("llm_generation_completed", { correlationId, tenantId, causationId, service: "llm-orchestrator" });
+
     await bus.publish(
       devEvent(
-        `llm_${e.id}`,
+        `llm_${event.id}`,
         EVENT_TYPES.MEMORY_UPDATED,
         { kind: "LLM_COMPLETED", structured },
-        e.correlationId,
-        e.id,
-        e.tenantId,
+        correlationId,
+        event.id,
+        tenantId,
       ),
     );
   });

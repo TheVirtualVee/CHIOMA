@@ -1,7 +1,4 @@
-/**
- * Structured output from Business Synthesis Engine (v1.1).
- * Operational truth requires owner confirmation events — never trust raw extraction alone.
- */
+/** contract: BusinessSynthesis */
 export type ProvenanceFact = {
   fact: string;
   source_type: string;

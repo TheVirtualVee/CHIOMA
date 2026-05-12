@@ -14,6 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dev": "tsx tools/dev-pipeline.ts",
+    "overseer:check": "tsx tools/overseer-engine/runner.ts",
+    "overseer:test": "vitest tools/overseer-engine/overseer-engine.test.ts",
     "init:chioma": "tsx cli/chioma-init/src/main.ts"
   },
   "dependencies": {

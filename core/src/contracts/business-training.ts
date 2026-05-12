@@ -1,6 +1,4 @@
-/**
- * Outputs from owner training conversations (v1.1). Persist only after explicit confirmation events.
- */
+/** contract: BusinessTraining */
 export type BusinessTrainingProposal = {
   operational_rules: string[];
   escalation_policies: string[];

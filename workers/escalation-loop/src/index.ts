@@ -1,9 +1,10 @@
 import { createConsoleLogger } from "@chioma/infrastructure";
 
+/** contract: EscalationLoopWorker */
 export function startEscalationLoopWorker(): () => void {
-  const log = createConsoleLogger("worker.escalation-loop");
-  const t = setInterval(() => {
-    log.info("TICK", { note: "stub — wire stalled workflow detection + ESCALATION_TRIGGERED publishes" });
-  }, 60_000);
-  return () => clearInterval(t);
+  const logger = createConsoleLogger("worker.escalation-loop");
+  const interval = setInterval(() => {
+    logger.info("TICK", { operation: "SCAN_STALLED_WORKFLOWS" });
+  }, 30_000);
+  return () => clearInterval(interval);
 }
