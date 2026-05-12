@@ -1,6 +1,9 @@
 import postgres from "postgres";
 import type { DomainEvent } from "@chioma/core";
 import type { EventProjectionStore } from "./stores.js";
+import { createConsoleLogger } from "../observability/logger.js";
+
+const logger = createConsoleLogger("supabase-store");
 
 /** contract: SupabaseProjectionStore */
 export function createSupabaseProjectionStore(connectionString: string): EventProjectionStore {
@@ -127,7 +130,7 @@ export function createSupabaseEventLog(connectionString: string) {
 export function createSupabaseConsumerStore(connectionString: string) {
   const sql = postgres(connectionString, { ssl: "require", max: 5 });
 
-  // Initialize table if it doesn't exist (useful for bootstrap)
+  /** side-effect: Bootstrap consumer_offsets table */
   sql`
     CREATE TABLE IF NOT EXISTS core.consumer_offsets (
       tenant_id TEXT NOT NULL,
@@ -136,7 +139,9 @@ export function createSupabaseConsumerStore(connectionString: string) {
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (tenant_id, consumer_group)
     );
-  `.catch(() => {});
+  `.catch((err) => {
+    logger.error("BOOTSTRAP_FAILURE", { table: "consumer_offsets", error: String(err) });
+  });
 
   return {
     async getOffset(tenantId: string, consumerGroup: string): Promise<number> {

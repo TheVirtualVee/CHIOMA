@@ -70,12 +70,10 @@ export class EventConsumerWorker {
       if (!this.isRunning) break;
 
       try {
-        // Dispatch to side-effects layer (the local runtime bus)
-        // NOTE: The local bus must be configured to only execute handlers, 
-        // NOT write back to the DB to avoid infinite loops.
+        /** side-effect: Dispatch to local side-effects layer */
         await this.localDispatcher.dispatchLocally(event);
         
-        // Commit offset after successful processing
+        /** side-effect: Commit offset after successful processing */
         await this.offsetStore.updateOffset(tenantId, this.consumerGroup, position);
       } catch (err) {
         logger.error("CONSUMER_EVENT_FAILED", { 

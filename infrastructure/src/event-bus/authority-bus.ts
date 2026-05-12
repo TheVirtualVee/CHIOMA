@@ -26,19 +26,12 @@ export class StrictAuthorityEventBus implements EventBus {
     this.handlers.set(type, list);
   }
 
-  /**
-   * CHIOMA Event Source Authority Model (Option A)
-   * The database (log) is the ONLY source of truth.
-   * 1. Check idempotency.
-   * 2. Commit to external log FIRST.
-   * 3. Replicate to local observers ONLY IF commit succeeds.
-   */
   async publish(event: DomainEvent): Promise<void> {
     if (!event.tenantId) {
       throw new Error("TENANT_ISOLATION_FAILURE: tenantId is required for all events");
     }
     
-    // Global Event ID Contract enforcement (pseudo-check to ensure deterministic ID presence)
+    /** constraint: Deterministic identity headers required */
     if (!event.id || !event.correlationId) {
        throw new Error("EXECUTION_FAILED: Event is missing mandatory deterministic identity headers");
     }
@@ -48,19 +41,16 @@ export class StrictAuthorityEventBus implements EventBus {
     this.pendingApplied.add(key);
 
     try {
-      // 1. Idempotency Guard
+      /** constraint: Idempotency Guard */
       if (this.projectionStore && await this.projectionStore.hasApplied(event.tenantId, event.id)) {
-        return; // Already processed
+        return;
       }
       
-      // 2. EXTERNAL COMMIT: The Single Source of Truth Write
-      // If this fails, the entire transaction fails. No local state is updated.
+      /** contract: Single Source of Truth Write */
       await this.log.append(event);
 
-      // 3. Local State Update (Projection Guard)
+      /** side-effect: Projection Guard Update */
       await this.projectionStore?.recordApplied(event.tenantId, event.id);
-
-      // (Side effects are NO LONGER executed here. The Consumer Worker handles them.)
     } catch (e) {
       logger.error("EVENT_COMMIT_FAILED", { eventId: event.id, tenantId: event.tenantId, error: String(e) });
       throw e;
@@ -70,8 +60,7 @@ export class StrictAuthorityEventBus implements EventBus {
   }
 
   /**
-   * Called ONLY by the EventConsumerWorker after successful DB commit.
-   * Executes side effects deterministically and safely.
+   * contract: Side-Effect Post-Commit Dispatch
    */
   async dispatchLocally(event: DomainEvent): Promise<void> {
     const list = this.handlers.get(event.type) ?? [];

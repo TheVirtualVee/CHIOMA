@@ -1,4 +1,4 @@
-import { createAppendOnlyLog, createAuthorityBus, createSupabaseEventLog, createSupabaseProjectionStore, createInMemoryProjectionStore, createSupabaseConsumerStore, EventConsumerWorker } from "@chioma/infrastructure";
+import { createAppendOnlyLog, createAuthorityBus, createSupabaseEventLog, createSupabaseProjectionStore, createInMemoryProjectionStore, createSupabaseConsumerStore, EventConsumerWorker, createConsoleLogger, createMetrics } from "@chioma/infrastructure";
 import { publishBusinessSynthesisProposal, registerBusinessSynthesisEngine } from "@chioma/business-synthesis-engine";
 import { publishBusinessTrainingProposal, registerBusinessTrainingEngine } from "@chioma/business-training-engine";
 import { registerCommitmentEngine } from "@chioma/commitment-engine";
@@ -17,23 +17,26 @@ import { startMemoryCompactionWorker } from "@chioma/worker-memory-compaction";
 import dotenv from "dotenv";
 dotenv.config();
 
+const logger = createConsoleLogger("dev-pipeline");
+const metrics = createMetrics("dev-pipeline");
+
 async function main(): Promise<void> {
   const dbUrl = process.env.DATABASE_URL;
   const tenantId = "tenant_demo";
   
-  // CHIOMA Event Source Authority Model Wiring
+  /** contract: Event Source Authority Model Wiring */
   const log = dbUrl ? createSupabaseEventLog(dbUrl) : createAppendOnlyLog();
   const projectionStore = dbUrl ? createSupabaseProjectionStore(dbUrl) : createInMemoryProjectionStore();
   
-  console.log(`[BOOTSTRAP] Event Store Authority: ${dbUrl ? 'SUPABASE CLOUD' : 'IN-MEMORY STUB'}`);
+  logger.info("BOOTSTRAP_AUTHORITY", { source: dbUrl ? "SUPABASE_CLOUD" : "LOCAL_VOLATILE" });
   
   const bus = createAuthorityBus(log, undefined, projectionStore);
 
-  // Initialize Consumer Layer (Option A Side-Effect Isolation)
+  /** side-effect: Consumer Layer Initialization */
   let consumerWorker: EventConsumerWorker | null = null;
   if (dbUrl) {
     const consumerStore = createSupabaseConsumerStore(dbUrl);
-    // Cast 'log' because in-memory log doesn't implement getSince. In production, we'd strict-type this.
+    /** constraint: DB source required for worker */
     consumerWorker = new EventConsumerWorker(log as any, consumerStore, bus, "chioma_core_services", [tenantId], 1000);
     consumerWorker.start();
   }
@@ -55,15 +58,13 @@ async function main(): Promise<void> {
 
   const ingestion = createIngestionApi(bus);
   const correlationId = `corr_${Date.now().toString(36)}`;
-  const tenantId = "tenant_demo";
   await ingestion.receiveWhatsAppText("Hello — I'd like to book next week.", correlationId, tenantId);
 
   await publishBusinessSynthesisProposal(bus, { correlationId, causationId: null, tenantId });
   await publishBusinessTrainingProposal(bus, { correlationId, causationId: null, tenantId });
 
-  const types = log.all ? (await log.all()).map((e: any) => e.type) : ["DB_READ_NOT_IMPLEMENTED_FOR_DEV_LOG_YET"];
-  // SIDE EFFECT: stdout for local smoke test. Why necessary and unavoidable: dev-pipeline has no other sink in scaffold.
-  console.log("CHIOMA dev pipeline — event sequence:", types.join(" → "));
+  const types = log.all ? (await log.all()).map((e: any) => e.type) : ["REMOTE_EVENT_STREAM"];
+  logger.info("EXECUTION_TRACE", { sequence: types });
 
   stopRecovery();
   stopEscalation();
@@ -73,6 +74,6 @@ async function main(): Promise<void> {
   }
 }
 main().catch((err) => {
-  console.error(err);
+  logger.error("PIPELINE_CRASH", { error: String(err) });
   process.exitCode = 1;
 });
