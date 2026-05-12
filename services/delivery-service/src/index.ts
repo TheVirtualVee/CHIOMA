@@ -24,5 +24,16 @@ export function registerDeliveryService(bus: EventBus): void {
         tenantId,
       ),
     );
+
+    await bus.publish(
+      devEvent(
+        `done_${event.id}`,
+        EVENT_TYPES.EXECUTION_COMPLETED,
+        { service: "delivery-service", action: "MESSAGE_SENT" },
+        correlationId,
+        event.id,
+        tenantId,
+      )
+    );
   });
 }

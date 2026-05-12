@@ -5,30 +5,17 @@ export type ExecutionIntent =
   | "QUERY_STATE"
   | "SEND_MESSAGE"
   | "REPLAY_EVENTS"
-  | "NO_OP";
+  | "PRICE_INQUIRY"
+  | "RETENTION_SIGNAL"
+  | "REPEAT_LAST_ACTION"
+  | "ESCALATE_TO_LLM"
+  | "UNCLASSIFIED";
 
-export function mapInstruction(input: string): ExecutionIntent {
-  const normalized = input.toLowerCase().trim();
+import { resolveIntent } from "./resolution-engine.js";
 
-  if (normalized.includes("send") || normalized.includes("message")) {
-    return "SEND_MESSAGE";
-  }
-  
-  if (normalized.includes("commitment")) {
-    return "UPDATE_COMMITMENT";
-  }
-  
-  if (normalized.includes("event")) {
-    return "CREATE_EVENT";
-  }
-  
-  if (normalized.includes("replay")) {
-    return "REPLAY_EVENTS";
-  }
-  
-  if (normalized.includes("status") || normalized.includes("state")) {
-    return "QUERY_STATE";
-  }
-
-  return "NO_OP";
+export function mapInstruction(
+  input: string,
+  context: { tenantId: string; lastIntent?: string } = { tenantId: "default" }
+): ExecutionIntent {
+  return resolveIntent(input, context);
 }

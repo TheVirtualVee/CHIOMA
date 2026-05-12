@@ -32,6 +32,17 @@ export async function publishBusinessTrainingProposal(
       tenantId,
     ),
   );
+
+  await bus.publish(
+    devEvent(
+      `done_${correlationId}`,
+      EVENT_TYPES.EXECUTION_COMPLETED,
+      { service: "business-training-engine", action: "PROPOSAL_PUBLISHED" },
+      correlationId,
+      causationId,
+      tenantId,
+    )
+  );
 }
 
 export function registerBusinessTrainingEngine(bus: EventBus): void {

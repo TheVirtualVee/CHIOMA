@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export type ChiomaConfig = {
   nodeEnv: string;
   storageDir: string;

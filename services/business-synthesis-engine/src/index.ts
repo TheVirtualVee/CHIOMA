@@ -46,6 +46,17 @@ export async function publishBusinessSynthesisProposal(
       tenantId,
     ),
   );
+
+  await bus.publish(
+    devEvent(
+      `done_${correlationId}`,
+      EVENT_TYPES.EXECUTION_COMPLETED,
+      { service: "business-synthesis-engine", action: "PROPOSAL_PUBLISHED" },
+      correlationId,
+      causationId,
+      tenantId,
+    )
+  );
 }
 
 export function registerBusinessSynthesisEngine(bus: EventBus): void {

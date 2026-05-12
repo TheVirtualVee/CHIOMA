@@ -68,6 +68,7 @@ export function registerCommitmentEngine(bus: EventBus): void {
           if (!result.ok) {
             logger.warn("COMMITMENT_REJECTED", { correlationId, tenantId, causationId, code: result.error.code });
             metrics.emit("commitment_rejected", { correlationId, tenantId, causationId, code: result.error.code, service: "commitment-engine" });
+            await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_FAILED, { reason: "COMMITMENT_VALIDATION_FAILURE", code: result.error.code }, event));
             continue;
           }
           
@@ -80,6 +81,8 @@ export function registerCommitmentEngine(bus: EventBus): void {
               event
             )
           );
+
+          await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_COMPLETED, { action: "COMMITMENT_CREATED", commitmentId: result.value.id }, event));
         }
       },
       { service: "commitment-engine", operation: "PROCESS_COMMITMENTS", logger }

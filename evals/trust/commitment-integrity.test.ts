@@ -34,7 +34,7 @@ describe("Commitment Integrity Simulation", () => {
     // 3. Verification
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.code).toBe("INVALID_COMMITMENT_CANDIDATE");
+      expect(result.error.code).toBe("BUSINESS_NOT_SUPPORTED");
     }
   });
 

@@ -1,4 +1,4 @@
-import { EVENT_TYPES, mapInstruction, type EventBus, type LlmStructuredOutput } from "@chioma/core";
+import { EVENT_TYPES, mapInstruction, createFollowupEvent, type EventBus, type LlmStructuredOutput } from "@chioma/core";
 import { createConsoleLogger, devEvent, metrics, overseer } from "@chioma/infrastructure";
 
 /** contract: LlmOrchestrator */
@@ -9,17 +9,29 @@ export function registerLlmOrchestrator(bus: EventBus): void {
     const payload = event.payload as { kind?: string; text?: string } | null;
     if (payload?.kind !== "CONTEXT_SNAPSHOT") return;
 
-    const input = payload.text ?? "";
-    const intent = mapInstruction(input);
+    const input = payload.text ?? (payload as any).activeConversation?.[0]?.text ?? "";
+    
+    try {
+      const intent = mapInstruction(input, { tenantId: event.tenantId });
 
-    if (intent === "NO_OP") {
-      logger.info("CEM_NO_OP", { correlationId: event.correlationId, reason: "No executable intent detected" });
-      return;
-    }
+      if (intent === "UNCLASSIFIED") {
+        logger.info("INTENT_UNRESOLVABLE", { correlationId: event.correlationId, reason: "No executable intent detected" });
+        await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_FAILED, { type: "INTENT_UNRESOLVABLE", input }, event));
+        return;
+      }
 
-    const validated = overseer.validate(intent, input);
-    if (!validated.ok) {
-      logger.warn("CEM_VALIDATION_FAILURE", { correlationId: event.correlationId, reason: validated.reason });
+      const validated = overseer.validate(intent, input);
+      if (!validated.ok) {
+        logger.warn("GOVERNANCE_BLOCKED", { correlationId: event.correlationId, reason: validated.reason });
+        await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_FAILED, { type: "GOVERNANCE_BLOCKED", detail: validated.reason }, event));
+        return;
+      }
+    } catch (err: any) {
+      if (err.message?.includes("CONFIG_INVALID")) {
+        await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_FAILED, { type: "CONFIG_INVALID", detail: err.message }, event));
+      } else {
+        await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_FAILED, { type: "EXECUTION_FAILED", detail: err.message }, event));
+      }
       return;
     }
 
@@ -56,5 +68,7 @@ export function registerLlmOrchestrator(bus: EventBus): void {
         tenantId,
       ),
     );
+
+    await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_COMPLETED, { intent, status: "SUCCESS" }, event));
   });
 }
