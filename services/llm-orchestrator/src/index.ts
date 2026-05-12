@@ -11,8 +11,12 @@ export function registerLlmOrchestrator(bus: EventBus): void {
 
     const input = payload.text ?? (payload as any).activeConversation?.[0]?.text ?? "";
     
+    const { tenantId, correlationId, id: causationId } = event;
+    let resolvedIntent = "assist";
+
     try {
       const intent = mapInstruction(input, { tenantId: event.tenantId });
+      resolvedIntent = intent;
 
       if (intent === "UNCLASSIFIED") {
         logger.info("INTENT_UNRESOLVABLE", { correlationId: event.correlationId, reason: "No executable intent detected" });
@@ -26,16 +30,15 @@ export function registerLlmOrchestrator(bus: EventBus): void {
         await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_FAILED, { type: "GOVERNANCE_BLOCKED", detail: validated.reason }, event));
         return;
       }
-    } catch (err: any) {
-      if (err.message?.includes("CONFIG_INVALID")) {
-        await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_FAILED, { type: "CONFIG_INVALID", detail: err.message }, event));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message?.includes("CONFIG_INVALID")) {
+        await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_FAILED, { type: "CONFIG_INVALID", detail: message }, event));
       } else {
-        await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_FAILED, { type: "EXECUTION_FAILED", detail: err.message }, event));
+        await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_FAILED, { type: "EXECUTION_FAILED", detail: message }, event));
       }
       return;
     }
-
-    const { tenantId, correlationId, id: causationId } = event;
 
     const structured: LlmStructuredOutput = {
       response: "Thanks — I can help with that. No promises recorded yet.",
@@ -69,6 +72,6 @@ export function registerLlmOrchestrator(bus: EventBus): void {
       ),
     );
 
-    await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_COMPLETED, { intent, status: "SUCCESS" }, event));
+    await bus.publish(createFollowupEvent(EVENT_TYPES.EXECUTION_COMPLETED, { intent: resolvedIntent, status: "SUCCESS" }, event));
   });
 }

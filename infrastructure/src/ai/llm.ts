@@ -50,7 +50,10 @@ export class OpenAIProvider implements LlmProvider {
       throw new Error(`OPENAI_API_FAILURE: ${JSON.stringify(error)}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as {
+      choices: Array<{ message: { content: string } }>;
+      usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    };
     return {
       content: data.choices[0].message.content,
       usage: {
@@ -88,7 +91,10 @@ export class AnthropicProvider implements LlmProvider {
       throw new Error(`ANTHROPIC_API_FAILURE: ${JSON.stringify(error)}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as {
+      content: Array<{ text: string }>;
+      usage: { input_tokens: number; output_tokens: number };
+    };
     return {
       content: data.content[0].text,
       usage: {

@@ -1,4 +1,14 @@
-import { createAppendOnlyLog, createAuthorityBus, createSupabaseEventLog, createSupabaseProjectionStore, createInMemoryProjectionStore, createSupabaseConsumerStore, EventConsumerWorker, createConsoleLogger, createMetrics } from "@chioma/infrastructure";
+import {
+  createAppendOnlyLog,
+  createAuthorityBus,
+  createSupabaseEventLog,
+  createSupabaseProjectionStore,
+  createInMemoryProjectionStore,
+  createSupabaseConsumerStore,
+  EventConsumerWorker,
+  createConsoleLogger,
+  createMetricsSink,
+} from "@chioma/infrastructure";
 import { publishBusinessSynthesisProposal, registerBusinessSynthesisEngine } from "@chioma/business-synthesis-engine";
 import { publishBusinessTrainingProposal, registerBusinessTrainingEngine } from "@chioma/business-training-engine";
 import { registerCommitmentEngine } from "@chioma/commitment-engine";
@@ -13,31 +23,45 @@ import { registerReliabilityEngine } from "@chioma/reliability-engine";
 import { startCommitmentRecoveryWorker } from "@chioma/worker-commitment-recovery";
 import { startEscalationLoopWorker } from "@chioma/worker-escalation-loop";
 import { startMemoryCompactionWorker } from "@chioma/worker-memory-compaction";
+import type { AppendOnlyEventLog } from "@chioma/infrastructure";
 
-import dotenv from "dotenv";
-dotenv.config();
+import { config } from "dotenv";
+config();
 
 const logger = createConsoleLogger("dev-pipeline");
-const metrics = createMetrics("dev-pipeline");
+void createMetricsSink(); // metrics sink wired; suppress unused-var
 
 async function main(): Promise<void> {
   const dbUrl = process.env.DATABASE_URL;
   const tenantId = "tenant_demo";
-  
+
   /** contract: Event Source Authority Model Wiring */
-  const log = dbUrl ? createSupabaseEventLog(dbUrl) : createAppendOnlyLog();
-  const projectionStore = dbUrl ? createSupabaseProjectionStore(dbUrl) : createInMemoryProjectionStore();
-  
+  // createSupabaseEventLog returns a superset (append + getHistory + getSince).
+  // Cast to AppendOnlyEventLog for authority bus; .all() only on local log.
+  const log: AppendOnlyEventLog = dbUrl
+    ? (createSupabaseEventLog(dbUrl) as unknown as AppendOnlyEventLog)
+    : createAppendOnlyLog();
+
+  const projectionStore = dbUrl
+    ? createSupabaseProjectionStore(dbUrl)
+    : createInMemoryProjectionStore();
+
   logger.info("BOOTSTRAP_AUTHORITY", { source: dbUrl ? "SUPABASE_CLOUD" : "LOCAL_VOLATILE" });
-  
+
   const bus = createAuthorityBus(log, undefined, projectionStore);
 
   /** side-effect: Consumer Layer Initialization */
   let consumerWorker: EventConsumerWorker | null = null;
   if (dbUrl) {
     const consumerStore = createSupabaseConsumerStore(dbUrl);
-    /** constraint: DB source required for worker */
-    consumerWorker = new EventConsumerWorker(log as any, consumerStore, bus, "chioma_core_services", [tenantId], 1000);
+    consumerWorker = new EventConsumerWorker(
+      createSupabaseEventLog(dbUrl) as any,
+      consumerStore,
+      bus,
+      "chioma_core_services",
+      [tenantId],
+      1000,
+    );
     consumerWorker.start();
   }
 
@@ -63,8 +87,13 @@ async function main(): Promise<void> {
   await publishBusinessSynthesisProposal(bus, { correlationId, causationId: null, tenantId });
   await publishBusinessTrainingProposal(bus, { correlationId, causationId: null, tenantId });
 
-  const types = log.all ? (await log.all()).map((e: any) => e.type) : ["REMOTE_EVENT_STREAM"];
-  logger.info("EXECUTION_TRACE", { sequence: types });
+  // .all() only on local in-memory log; guard for remote deployments
+  if ("all" in log && typeof (log as AppendOnlyEventLog).all === "function") {
+    const events = await (log as AppendOnlyEventLog).all();
+    logger.info("EXECUTION_TRACE", { sequence: events.map((e) => e.type) });
+  } else {
+    logger.info("EXECUTION_TRACE", { sequence: ["REMOTE_EVENT_STREAM"] });
+  }
 
   stopRecovery();
   stopEscalation();
@@ -73,6 +102,7 @@ async function main(): Promise<void> {
     consumerWorker.stop();
   }
 }
+
 main().catch((err) => {
   logger.error("PIPELINE_CRASH", { error: String(err) });
   process.exitCode = 1;

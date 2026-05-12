@@ -28,7 +28,7 @@ export function registerReliabilityEngine(bus: EventBus): void {
               commitmentId: commitment.id,
             },
             correlationId,
-            eventId,
+            causationId,
             tenantId,
           ),
         );

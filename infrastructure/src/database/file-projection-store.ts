@@ -46,7 +46,7 @@ export class FileEventProjectionStore implements EventProjectionStore {
     fs.writeFileSync(this.filePath, JSON.stringify(out));
   }
 
-  recordApplied(tenantId: string, eventId: string): void {
+  async recordApplied(tenantId: string, eventId: string): Promise<void> {
     if (!tenantId) throw new Error("TENANT_ISOLATION_FAILURE: tenantId required");
     const set = this.applied.get(tenantId) ?? new Set<string>();
     if (set.has(eventId)) return;
@@ -55,7 +55,7 @@ export class FileEventProjectionStore implements EventProjectionStore {
     this.persist();
   }
 
-  hasApplied(tenantId: string, eventId: string): boolean {
+  async hasApplied(tenantId: string, eventId: string): Promise<boolean> {
     if (!tenantId) throw new Error("TENANT_ISOLATION_FAILURE: tenantId required");
     return this.applied.get(tenantId)?.has(eventId) ?? false;
   }
