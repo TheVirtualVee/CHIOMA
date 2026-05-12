@@ -1,6 +1,5 @@
 import type { DomainEvent } from "@chioma/core";
 import { createConsoleLogger } from "../observability/logger.js";
-import type { EventBus } from "@chioma/core";
 
 const logger = createConsoleLogger("consumer-worker");
 

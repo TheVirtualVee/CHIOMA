@@ -19,6 +19,6 @@ export function createIngestionApi(bus: EventBus) {
   };
 }
 
-export function registerIngestionService(bus: EventBus): void {
+export function registerIngestionService(_bus: EventBus): void {
   // side-effect: service registration
 }

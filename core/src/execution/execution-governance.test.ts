@@ -1,13 +1,47 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mapInstruction } from "./execution-mapper.js";
-import { resolveIntent } from "./resolution-engine.js";
 import { intentRegistry } from "./intent-registry.js";
 import { ConfigurationBoundary } from "./config-boundary.js";
+import { ECBLoader } from "./ecb.js";
+
+/** Minimal valid ECB bundle derived from the live intentRegistry */
+function makeTestBundle() {
+  return {
+    version: "1.0.0",
+    intents: intentRegistry.map((r) => ({
+      id: r.id,
+      priority: r.priority,
+      patterns: r.patterns,
+      deprecated: r.deprecated,
+    })),
+    resolutionPolicy: {
+      tieBreakRule: "hash" as const,
+      memoryAlignmentWeight: 0.5,
+    },
+    config: {
+      priorityOverrides: {},
+      escalationThreshold: 0.5,
+    },
+    failureModes: [
+      "CONFIG_INVALID",
+      "INTENT_UNRESOLVABLE",
+      "GOVERNANCE_BLOCKED",
+      "EXECUTION_FAILED",
+    ],
+  };
+}
 
 /** contract: ExecutionGovernanceTests */
 describe("Execution Governance & Determinism", () => {
   beforeEach(() => {
     ConfigurationBoundary.validateAndSet({ version: "1.0.0" });
+    // Reset ECBLoader singleton so each test gets a fresh load
+    ECBLoader.reset();
+    ECBLoader.load(makeTestBundle());
+  });
+
+  afterEach(() => {
+    ECBLoader.reset();
   });
 
   const context = { tenantId: "tenant_kalu" };
@@ -36,6 +70,9 @@ describe("Execution Governance & Determinism", () => {
         deprecated: false,
         patterns: ["how much"],
       });
+      // Reload ECB with the augmented registry
+      ECBLoader.reset();
+      ECBLoader.load(makeTestBundle());
 
       const result1 = mapInstruction("how much", { tenantId: "t1" });
       const result2 = mapInstruction("how much", { tenantId: "t1" });
@@ -45,12 +82,15 @@ describe("Execution Governance & Determinism", () => {
     });
 
     it("should be independent of rule registration order", () => {
-      const input = "send price"; 
+      const input = "send price";
       const resultBefore = mapInstruction(input, context);
-      
+
       intentRegistry.sort(() => Math.random() - 0.5);
+      // Reload ECB with shuffled registry
+      ECBLoader.reset();
+      ECBLoader.load(makeTestBundle());
       const resultAfter = mapInstruction(input, context);
-      
+
       expect(resultBefore).toBe(resultAfter);
     });
   });

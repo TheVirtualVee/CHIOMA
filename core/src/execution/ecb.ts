@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { type ExecutionIntent } from "./execution-mapper.js";
+// ExecutionIntent re-exported for consumers of this module
+export type { ExecutionIntent } from "./execution-mapper.js";
 
 /** contract: ECB_Schema */
 export const ECBSchema = z.object({

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { InMemoryEventBus, createAppendOnlyLog, devEvent } from "../event-bus/in-memory.js";
 import { createInMemoryProjectionStore, type EventProjectionStore } from "./stores.js";
 import { EVENT_TYPES } from "@chioma/core";

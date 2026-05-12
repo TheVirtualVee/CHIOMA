@@ -6,7 +6,7 @@ import { execSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, relative } from "node:path";
 import { enforce } from "./engine.js";
-import type { Changeset, FileChange, OverseerDecision, Violation } from "./types.js";
+import type { Changeset, FileChange, OverseerDecision } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // CONSTANTS

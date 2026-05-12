@@ -11,7 +11,7 @@ export type ChiomaConfig = {
 };
 
 /** contract: EnvironmentSchema */
-const EnvSchema = z.object({
+export const EnvSchema = z.object({
   NODE_ENV: z.string().default("development"),
   CHIOMA_STORAGE_DIR: z.string().default("./.chioma-storage"),
   OPENAI_API_KEY: z.string().optional(),
@@ -20,13 +20,16 @@ const EnvSchema = z.object({
 });
 
 export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ChiomaConfig {
+  // Parse and apply defaults via schema
+  const parsed = EnvSchema.parse(env);
+
   const config: ChiomaConfig = {
-    nodeEnv: env.NODE_ENV ?? "development",
-    storageDir: env.CHIOMA_STORAGE_DIR ?? "./.chioma-storage",
+    nodeEnv: parsed.NODE_ENV,
+    storageDir: parsed.CHIOMA_STORAGE_DIR,
     providers: {
-      openai: env.OPENAI_API_KEY,
-      whatsapp: env.WHATSAPP_API_KEY,
-      anthropic: env.ANTHROPIC_API_KEY,
+      openai: parsed.OPENAI_API_KEY,
+      whatsapp: parsed.WHATSAPP_API_KEY,
+      anthropic: parsed.ANTHROPIC_API_KEY,
     },
   };
 

@@ -61,7 +61,7 @@ export function createMetricsSink(): ChiomaMetrics {
     recordDlqVolume: (tenantId, count) => {
       dlqVolumes.set(tenantId, count);
     },
-    recordTokenUsage: (tenantId, model, prompt, completion) => {
+    recordTokenUsage: (tenantId, _model, prompt, completion) => {
       const current = tokenUsage.get(tenantId) ?? { prompt: 0, completion: 0 };
       current.prompt += prompt;
       current.completion += completion;

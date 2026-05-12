@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { 
   EVENT_TYPES, 
   createEvent, 
-  createFollowupEvent, 
+
   validateCommitmentCandidate,
-  type CommitmentCandidate 
+
 } from "@chioma/core";
 import { 
   InMemoryEventBus, 
@@ -21,7 +21,7 @@ import {
 describe("Commitment Integrity Simulation", () => {
   it("rejects hallucinated commitments that fail validation schema", async () => {
     // 1. Setup
-    const logger = createConsoleLogger("test-service");
+    const _logger = createConsoleLogger("test-service"); void _logger;
     const candidate: any = {
       type: "INVALID_TYPE", // Hallucinated type
       origin: "explicit",

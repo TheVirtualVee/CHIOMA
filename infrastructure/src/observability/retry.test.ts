@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createSafeHandler } from "./safe-handler.js";
 import { createConsoleLogger } from "./logger.js";
 import { devEvent } from "../event-bus/in-memory.js";

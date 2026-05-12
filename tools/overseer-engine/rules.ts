@@ -402,7 +402,7 @@ export function checkRule11ContextPropagation(file: FileChange): Violation[] {
   if (!hasServiceDef) return [];
 
   const violations: Violation[] = [];
-  const lines = file.content.split("\n");
+  const _lines = file.content.split("\n"); void _lines; // retained for future line-level diagnostics
   const funcPattern = /function\s+\w+\s*\([^)]*\)\s*\{/g;
   let match: RegExpExecArray | null;
   
@@ -439,7 +439,7 @@ export function checkRule12CommentPurity(file: FileChange): Violation[] {
   }
 
   const violations: Violation[] = [];
-  const lines = file.content.split("\n");
+  const _lines2 = file.content.split("\n"); void _lines2; // retained for future line-level diagnostics
   
   // Find all comments (// or /* */)
   const commentPattern = /\/\/[^\n]*|\/\*[\s\S]*?\*\//g;

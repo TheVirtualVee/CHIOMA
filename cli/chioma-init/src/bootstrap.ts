@@ -16,7 +16,8 @@ async function bootstrap() {
 
   try {
     // 1. Validate Environment
-    const config = loadConfigFromEnv();
+    const _config = loadConfigFromEnv();
+    void _config; // validated — env vars checked on load
     report.steps.push({ name: "env_validation", status: "success" });
 
     // 2. Database Connectivity & Schema
