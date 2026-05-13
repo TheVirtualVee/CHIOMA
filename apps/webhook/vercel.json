@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "buildCommand": "cd ../.. && npm run build",
+  "outputDirectory": ".vercel/output",
+  "functions": {
+    "api/webhook.ts": {
+      "maxDuration": 10,
+      "memory": 256
+    },
+    "api/health.ts": {
+      "maxDuration": 5,
+      "memory": 128
+    },
+    "api/admin/*.ts": {
+      "maxDuration": 15,
+      "memory": 256
+    }
+  },
+  "routes": [
+    { "src": "/webhook", "dest": "/api/webhook.ts" },
+    { "src": "/health", "dest": "/api/health.ts" },
+    { "src": "/admin/(.*)", "dest": "/api/admin/$1.ts" }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "@chioma/worker-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-vm-modules dist/main.js",
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@chioma/core": "*",
+    "@chioma/infrastructure": "*",
+    "@chioma/commitment-engine": "*",
+    "@chioma/context-compiler": "*",
+    "@chioma/delivery-service": "*",
+    "@chioma/escalation-service": "*",
+    "@chioma/intent-service": "*",
+    "@chioma/llm-orchestrator": "*",
+    "@chioma/memory-store": "*",
+    "@chioma/reliability-engine": "*",
+    "@chioma/worker-commitment-recovery": "*",
+    "@chioma/worker-escalation-loop": "*",
+    "@chioma/worker-memory-compaction": "*",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

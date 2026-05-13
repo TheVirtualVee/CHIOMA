@@ -25,3 +25,21 @@ Append-only operational notes for agents and humans. Update when new edges are d
 pm run overseer:check before completion. Failure to do so bypasses the primary trust gate of CHIOMA v1.1.
 - **RegExp State Leakage**: When using global regexes (/g), always use 
 ew RegExp() or .test() on non-global instances to avoid lastIndex state leakage across multiple file scans in the same process.
+
+## Phase 3 — Operational Convergence edges (discovered during audit)
+
+9. **WhatsApp signature validation missing** — `handleWebhook` accepts any body without verifying `x-hub-signature-256` HMAC. A forged request would enter the event log as a real tenant event.
+
+10. **getSince references `global_position` column** — `supabase-store.ts:getSince` selects `global_position` but no migration adds that column. Consumer workers would silently fail to poll events.
+
+11. **delivery-service sends to WhatsApp in-process** — Current `registerDeliveryService` emits `RESPONSE_SENT` event but never calls the real WhatsApp API. The side-effect boundary exists but the actual HTTP call is unwired.
+
+12. **LLM has no timeout or retry** — `OpenAIProvider.complete` and `AnthropicProvider.complete` make raw `fetch` calls with no `AbortController` timeout. A hung provider stalls the entire execution chain.
+
+13. **No Vercel surface exists** — The repo has no `apps/webhook/` directory, no `vercel.json`, and no isolated edge entry for WhatsApp webhooks. Deployment to Vercel would bundle the entire worker runtime.
+
+14. **No Render surface exists** — No `render.yaml`, no isolated worker entrypoint. A Render deploy has no deterministic start command.
+
+15. **DB bootstrap is a side-effect** — `createSupabaseConsumerStore` issues a `CREATE TABLE IF NOT EXISTS` inside the constructor. This makes boot non-idempotent and hides schema state. Should be a migration.
+
+16. **No schema validation at boot** — Runtime never verifies that required tables, functions, or ECB exist before accepting events. A schema drift would produce silent EXECUTION_FAILED errors.
