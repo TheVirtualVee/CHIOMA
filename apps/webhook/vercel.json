@@ -5,14 +5,17 @@
   "outputDirectory": ".vercel/output",
   "functions": {
     "api/webhook.ts": {
+      "runtime": "nodejs20.x",
       "maxDuration": 10,
       "memory": 256
     },
     "api/health.ts": {
+      "runtime": "nodejs20.x",
       "maxDuration": 5,
       "memory": 128
     },
     "api/admin/*.ts": {
+      "runtime": "nodejs20.x",
       "maxDuration": 15,
       "memory": 256
     }

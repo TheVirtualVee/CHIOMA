@@ -8,7 +8,6 @@ export default function handler(_req: Request): Response {
     JSON.stringify({
       status: "ok",
       service: "chioma-webhook",
-      uptime: process.uptime(),
       ts: new Date().toISOString(),
     }),
     {
