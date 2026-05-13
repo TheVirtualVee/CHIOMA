@@ -8,6 +8,7 @@ import {
   EventConsumerWorker,
   createConsoleLogger,
   createMetricsSink,
+  createDatabaseClient,
 } from "@chioma/infrastructure";
 import { publishBusinessSynthesisProposal, registerBusinessSynthesisEngine } from "@chioma/business-synthesis-engine";
 import { publishBusinessTrainingProposal, registerBusinessTrainingEngine } from "@chioma/business-training-engine";
@@ -35,16 +36,17 @@ async function main(): Promise<void> {
   const dbUrl = process.env.DATABASE_URL;
   const tenantId = "tenant_demo";
 
-  /** contract: Event Source Authority Model Wiring */
-  // createSupabaseEventLog returns a superset (append + getHistory + getSince).
-  // Cast to AppendOnlyEventLog for authority bus; .all() only on local log.
-  const log: AppendOnlyEventLog = dbUrl
-    ? (createSupabaseEventLog(dbUrl) as unknown as AppendOnlyEventLog)
-    : createAppendOnlyLog();
+  let log: AppendOnlyEventLog;
+  let projectionStore;
 
-  const projectionStore = dbUrl
-    ? createSupabaseProjectionStore(dbUrl)
-    : createInMemoryProjectionStore();
+  if (dbUrl) {
+    const sql = await createDatabaseClient(dbUrl);
+    log = createSupabaseEventLog(sql) as unknown as AppendOnlyEventLog;
+    projectionStore = createSupabaseProjectionStore(sql);
+  } else {
+    log = createAppendOnlyLog();
+    projectionStore = createInMemoryProjectionStore();
+  }
 
   logger.info("BOOTSTRAP_AUTHORITY", { source: dbUrl ? "SUPABASE_CLOUD" : "LOCAL_VOLATILE" });
 
@@ -53,9 +55,10 @@ async function main(): Promise<void> {
   /** side-effect: Consumer Layer Initialization */
   let consumerWorker: EventConsumerWorker | null = null;
   if (dbUrl) {
-    const consumerStore = createSupabaseConsumerStore(dbUrl);
+    const sql = await createDatabaseClient(dbUrl); // Re-use or share if possible, but for dev tool redundant init is fine or use same sql
+    const consumerStore = createSupabaseConsumerStore(sql);
     consumerWorker = new EventConsumerWorker(
-      createSupabaseEventLog(dbUrl) as any,
+      createSupabaseEventLog(sql) as any,
       consumerStore,
       bus,
       "chioma_core_services",

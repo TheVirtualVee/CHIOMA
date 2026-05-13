@@ -25,8 +25,6 @@ export interface LlmProvider {
   complete(request: LlmRequest): Promise<LlmResponse>;
 }
 
-// ─── Shared retry + timeout wrapper ───────────────────────────────────────
-
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
@@ -53,7 +51,6 @@ async function withRetry<T>(
     } catch (err) {
       lastErr = err;
       const isAbort = err instanceof Error && err.name === "AbortError";
-      // Only retry on timeout or 5xx — don't retry auth/4xx
       if (attempt <= maxRetries && isAbort) {
         await new Promise(r => setTimeout(r, 500 * attempt));
         continue;
@@ -63,8 +60,6 @@ async function withRetry<T>(
   }
   throw new Error(`${label}_FAILED: ${String(lastErr)}`);
 }
-
-// ─── OpenAI / OpenRouter provider ────────────────────────────────────────
 
 export class OpenAIProvider implements LlmProvider {
   private readonly timeoutMs: number;
@@ -109,12 +104,9 @@ export class OpenAIProvider implements LlmProvider {
         throw new Error(`OPENAI_HTTP_${response.status}: ${JSON.stringify(err)}`);
       }
 
-      const data = await response.json() as {
-        choices: Array<{ message: { content: string } }>;
-        usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
-      };
+      const data = await response.json() as any;
 
-      // constraint: LLM output never trusted — validate structure
+      /** constraint: LLM output never trusted — validate structure */
       z.object({
         choices: z.array(z.object({ message: z.object({ content: z.string() }) })),
         usage: z.object({ prompt_tokens: z.number(), completion_tokens: z.number(), total_tokens: z.number() }),
@@ -133,8 +125,6 @@ export class OpenAIProvider implements LlmProvider {
   }
 }
 
-// ─── Groq provider (OpenAI-compatible, fast inference) ───────────────────
-
 export class GroqProvider extends OpenAIProvider {
   constructor(
     apiKey: string,
@@ -145,8 +135,6 @@ export class GroqProvider extends OpenAIProvider {
   }
 }
 
-// ─── OpenRouter provider ─────────────────────────────────────────────────
-
 export class OpenRouterProvider extends OpenAIProvider {
   constructor(
     apiKey: string,
@@ -156,8 +144,6 @@ export class OpenRouterProvider extends OpenAIProvider {
     super(apiKey, model, "https://openrouter.ai/api/v1", opts);
   }
 }
-
-// ─── Anthropic provider ───────────────────────────────────────────────────
 
 export class AnthropicProvider implements LlmProvider {
   private readonly timeoutMs: number;
@@ -199,10 +185,7 @@ export class AnthropicProvider implements LlmProvider {
         throw new Error(`ANTHROPIC_HTTP_${response.status}: ${JSON.stringify(err)}`);
       }
 
-      const data = await response.json() as {
-        content: Array<{ text: string }>;
-        usage: { input_tokens: number; output_tokens: number };
-      };
+      const data = await response.json() as any;
 
       return {
         content: data.content[0].text,
@@ -217,12 +200,7 @@ export class AnthropicProvider implements LlmProvider {
   }
 }
 
-// ─── Factory — resolves provider from env ────────────────────────────────
-
-/**
- * contract: LlmFactory
- * side-effect: reads process.env.
- */
+/** contract: LlmProviderFactory */
 export function createLlmProviderFromEnv(): LlmProvider {
   const provider = process.env.LLM_PROVIDER ?? "openai";
   const apiKey = process.env.LLM_API_KEY || (provider === "groq" ? process.env.GROQ_API_KEY : undefined);
@@ -230,10 +208,8 @@ export function createLlmProviderFromEnv(): LlmProvider {
   const timeoutMs = parseInt(process.env.LLM_TIMEOUT_MS ?? String(DEFAULT_TIMEOUT_MS), 10);
   const maxRetries = parseInt(process.env.LLM_MAX_RETRIES ?? String(DEFAULT_MAX_RETRIES), 10);
 
-  // ASSERT: API key must be present
   if (!apiKey) {
-    const keyName = provider === "groq" ? "GROQ_API_KEY (or LLM_API_KEY)" : "LLM_API_KEY";
-    throw new Error(`BOOT_FAILURE: ${keyName} not set`);
+    throw new Error(`BOOT_FAILURE: LLM credentials missing for ${provider}`);
   }
 
   const opts = { timeoutMs, maxRetries };

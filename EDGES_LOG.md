@@ -28,18 +28,18 @@ ew RegExp() or .test() on non-global instances to avoid lastIndex state leakage 
 
 ## Phase 3 — Operational Convergence edges (discovered during audit)
 
-9. **WhatsApp signature validation missing** — `handleWebhook` accepts any body without verifying `x-hub-signature-256` HMAC. A forged request would enter the event log as a real tenant event.
+9. **WhatsApp signature validation missing** — `handleWebhook` accepts any body without verifying `x-hub-signature-256` HMAC. A forged request would enter the event log as a real tenant event. [STATUS: PENDING]
 
-10. **getSince references `global_position` column** — `supabase-store.ts:getSince` selects `global_position` but no migration adds that column. Consumer workers would silently fail to poll events.
+10. **getSince references `global_position` column** — Fixed in foundations migration. All event polling now uses authoritative BIGSERIAL global_position. [STATUS: RESOLVED]
 
-11. **delivery-service sends to WhatsApp in-process** — Current `registerDeliveryService` emits `RESPONSE_SENT` event but never calls the real WhatsApp API. The side-effect boundary exists but the actual HTTP call is unwired.
+11. **delivery-service sends to WhatsApp in-process** — Current `registerDeliveryService` emits `RESPONSE_SENT` event but actual HTTP call is unwired. [STATUS: PENDING]
 
-12. **LLM has no timeout or retry** — `OpenAIProvider.complete` and `AnthropicProvider.complete` make raw `fetch` calls with no `AbortController` timeout. A hung provider stalls the entire execution chain.
+12. **LLM has no timeout or retry** — Hardened in `infrastructure/src/ai/llm.ts` with `withRetry` and `fetchWithTimeout` decorators. [STATUS: RESOLVED]
 
-13. **No Vercel surface exists** — The repo has no `apps/webhook/` directory, no `vercel.json`, and no isolated edge entry for WhatsApp webhooks. Deployment to Vercel would bundle the entire worker runtime.
+13. **No Vercel surface exists** — Hardened. `apps/webhook/` and `vercel.json` are now authoritative for edge deployments. [STATUS: RESOLVED]
 
-14. **No Render surface exists** — No `render.yaml`, no isolated worker entrypoint. A Render deploy has no deterministic start command.
+14. **No Render surface exists** — Hardened. `render.yaml` and `apps/worker/src/main.ts` provide a deterministic background runtime. [STATUS: RESOLVED]
 
-15. **DB bootstrap is a side-effect** — `createSupabaseConsumerStore` issues a `CREATE TABLE IF NOT EXISTS` inside the constructor. This makes boot non-idempotent and hides schema state. Should be a migration.
+15. **DB bootstrap is a side-effect** — Hardened. Ad-hoc `CREATE TABLE` calls removed. All schema state is now managed via `supabase/migrations`. [STATUS: RESOLVED]
 
-16. **No schema validation at boot** — Runtime never verifies that required tables, functions, or ECB exist before accepting events. A schema drift would produce silent EXECUTION_FAILED errors.
+16. **No schema validation at boot** — Hardened. `apps/worker/src/main.ts` now executes `validateSchemaIntegrity` as a mandatory boot gate. [STATUS: RESOLVED]

@@ -1,4 +1,5 @@
 export * from "./contracts/context.js";
+export * from "./contracts/errors.js";
 export * from "./contracts/events.js";
 export * from "./contracts/ports.js";
 export * from "./contracts/llm.js";

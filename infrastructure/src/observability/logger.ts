@@ -1,8 +1,8 @@
-/** contract: ChiomaLogger */
 export type ChiomaLogger = {
   info: (msg: string, ctx?: Record<string, unknown>) => void;
   warn: (msg: string, ctx?: Record<string, unknown>) => void;
   error: (msg: string, ctx?: Record<string, unknown>) => void;
+  debug: (msg: string, ctx?: Record<string, unknown>) => void;
 };
 
 export function createConsoleLogger(service: string): ChiomaLogger {
@@ -22,5 +22,6 @@ export function createConsoleLogger(service: string): ChiomaLogger {
     info: (m, c) => log("info", m, c),
     warn: (m, c) => log("warn", m, c),
     error: (m, c) => log("error", m, c),
+    debug: (m, c) => log("debug", m, c),
   };
 }

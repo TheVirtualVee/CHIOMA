@@ -11,6 +11,7 @@ import {
   createConsoleLogger,
   metrics,
   lifecycle,
+  createDatabaseClient,
 } from "@chioma/infrastructure";
 import { registerCommitmentEngine } from "@chioma/commitment-engine";
 import { registerContextCompiler } from "@chioma/context-compiler";
@@ -28,7 +29,6 @@ import { validateRequiredEnv } from "./env-validator.js";
 
 const logger = createConsoleLogger("worker-runtime");
 
-// ─── Environment validation (hard gate) ───────────────────────────────────
 const REQUIRED_ENV = [
   "DATABASE_URL",
   "LLM_PROVIDER",
@@ -60,7 +60,14 @@ async function boot(): Promise<void> {
   const CONSUMER_GROUP = process.env.CONSUMER_GROUP ?? "chioma_core";
   const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS ?? "1000", 10);
 
-  logger.info("SCHEMA_VALIDATION_START");
+  let sql;
+  try {
+    sql = await createDatabaseClient(DATABASE_URL, { max: 10 });
+  } catch (err: any) {
+    logger.error("BOOT_FAILURE_DB", { error: err.message });
+    process.exit(1);
+  }
+
   const schemaResult = await validateSchemaIntegrity(DATABASE_URL);
   if (!schemaResult.valid) {
     logger.error("BOOT_FAILURE_SCHEMA", { issues: schemaResult.issues });
@@ -69,7 +76,7 @@ async function boot(): Promise<void> {
   logger.info("SCHEMA_VALIDATION_PASSED", { tables: schemaResult.tables });
 
   const localLog = createAppendOnlyLog();
-  const projectionStore = createSupabaseProjectionStore(DATABASE_URL);
+  const projectionStore = createSupabaseProjectionStore(sql);
   const bus = createAuthorityBus(localLog, undefined, projectionStore);
 
   registerMemoryStore(bus);
@@ -82,8 +89,8 @@ async function boot(): Promise<void> {
   registerEscalationService(bus);
   logger.info("SERVICE_HANDLERS_REGISTERED");
 
-  const supabaseLog = createSupabaseEventLog(DATABASE_URL);
-  const consumerStore = createSupabaseConsumerStore(DATABASE_URL);
+  const supabaseLog = createSupabaseEventLog(sql);
+  const consumerStore = createSupabaseConsumerStore(sql);
 
   const workers = TENANT_IDS.map((tenantId) => {
     const worker = new EventConsumerWorker(
@@ -103,7 +110,6 @@ async function boot(): Promise<void> {
   const stopRecovery = startCommitmentRecoveryWorker();
   const stopEscalation = startEscalationLoopWorker();
   const stopCompaction = startMemoryCompactionWorker();
-  logger.info("BACKGROUND_WORKERS_STARTED");
 
   lifecycle.onShutdown(async () => {
     logger.info("GRACEFUL_SHUTDOWN_START");
@@ -116,7 +122,7 @@ async function boot(): Promise<void> {
 
   lifecycle.setReady();
   const bootCorrelationId = `boot_${Date.now().toString(36)}`;
-  // ASSERT: causationId is null for root boot events
+  
   metrics.emit("worker_boot_complete", { 
     bootCorrelationId, 
     tenants: TENANT_IDS, 

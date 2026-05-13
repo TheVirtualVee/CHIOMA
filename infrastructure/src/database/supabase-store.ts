@@ -1,17 +1,9 @@
 import postgres from "postgres";
 import type { DomainEvent } from "@chioma/core";
 import type { EventProjectionStore } from "./stores.js";
-import { createConsoleLogger } from "../observability/logger.js";
-
-const logger = createConsoleLogger("supabase-store");
 
 /** contract: SupabaseProjectionStore */
-export function createSupabaseProjectionStore(connectionString: string): EventProjectionStore {
-  const sql = postgres(connectionString, {
-    ssl: "require",
-    max: 10,
-  });
-
+export function createSupabaseProjectionStore(sql: postgres.Sql): EventProjectionStore {
   return {
     async recordApplied(tenantId: string, eventId: string) {
       if (!tenantId) throw new Error("TENANT_ISOLATION_FAILURE: tenantId required");
@@ -43,11 +35,7 @@ export function createSupabaseProjectionStore(connectionString: string): EventPr
   };
 }
 
-export function createSupabaseEventLog(connectionString: string) {
-  const sql = postgres(connectionString, {
-    ssl: "require",
-  });
-
+export function createSupabaseEventLog(sql: postgres.Sql) {
   return {
     async append(event: DomainEvent) {
       if (!event.tenantId) throw new Error("TENANT_ISOLATION_FAILURE: tenantId required");
@@ -127,22 +115,7 @@ export function createSupabaseEventLog(connectionString: string) {
 }
 
 /** contract: SupabaseConsumerStore */
-export function createSupabaseConsumerStore(connectionString: string) {
-  const sql = postgres(connectionString, { ssl: "require", max: 5 });
-
-  /** side-effect: Bootstrap consumer_offsets table */
-  sql`
-    CREATE TABLE IF NOT EXISTS core.consumer_offsets (
-      tenant_id TEXT NOT NULL,
-      consumer_group TEXT NOT NULL,
-      last_position BIGINT NOT NULL DEFAULT 0,
-      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (tenant_id, consumer_group)
-    );
-  `.catch((err) => {
-    logger.error("BOOTSTRAP_FAILURE", { table: "consumer_offsets", error: String(err) });
-  });
-
+export function createSupabaseConsumerStore(sql: postgres.Sql) {
   return {
     async getOffset(tenantId: string, consumerGroup: string): Promise<number> {
       if (!tenantId) throw new Error("TENANT_ISOLATION_FAILURE: tenantId required");

@@ -4,6 +4,7 @@ export * from "./observability/metrics.js";
 export * from "./observability/tracing.js";
 export * from "./config/env.js";
 export * from "./database/stores.js";
+export * from "./database/client.js";
 export * from "./bootstrap/index.js";
 export * from "./observability/overseer-bridge.js";
 export * from "./observability/safe-handler.js";

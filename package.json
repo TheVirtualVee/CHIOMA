@@ -13,6 +13,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
     "dev": "tsx tools/dev-pipeline.ts",
     "overseer:check": "tsx tools/overseer-engine/runner.ts",
     "overseer:test": "vitest tools/overseer-engine/overseer-engine.test.ts",
