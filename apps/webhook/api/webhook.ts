@@ -12,23 +12,29 @@ import { runSyncPipeline } from "../../../core/runtime/index.js";
 
 export default async function handler(req: any, res: any) {
   const start = Date.now();
-  let config;
   
-  try {
-    config = validateConfig();
-  } catch (err) {
-    return res.status(500).send("Configuration error");
-  }
-  
+  // 1. Handle Meta Verification (GET)
+  // This must be independent of full config validation to allow bootstrapping.
   if (req.method === "GET") {
     const mode = req.query["hub.mode"];
     const token = req.query["hub.verify_token"];
     const challenge = req.query["hub.challenge"];
+    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
 
-    if (mode === "subscribe" && token === config.WHATSAPP_VERIFY_TOKEN) {
+    if (mode === "subscribe" && token === verifyToken) {
       return res.status(200).send(challenge);
     }
+    console.warn("WEBHOOK_VERIFY_FAILED", { received: token, expected: verifyToken });
     return res.status(403).send("Forbidden");
+  }
+
+  // 2. Validate Full Config for Processing (POST)
+  let config;
+  try {
+    config = validateConfig();
+  } catch (err) {
+    console.error("CONFIG_ERROR_DURING_POST");
+    return res.status(500).send("Configuration incomplete");
   }
 
   if (req.method === "POST") {
