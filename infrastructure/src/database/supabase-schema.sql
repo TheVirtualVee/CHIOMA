@@ -79,6 +79,25 @@ CREATE TABLE IF NOT EXISTS operational_memory (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- 7. Failed Ingestion (Dead Letter Ingress)
+CREATE TABLE IF NOT EXISTS failed_events (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    raw_payload JSONB NOT NULL,
+    headers JSONB NOT NULL,
+    error TEXT NOT NULL,
+    failed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 8. Message Deduplication (Idempotency)
+CREATE TABLE IF NOT EXISTS processed_messages (
+    message_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_processed_tenant_id ON processed_messages(tenant_id);
+
 -- Enable RLS (Row Level Security) for Tenant Isolation
 ALTER TABLE events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projections_applied ENABLE ROW LEVEL SECURITY;
@@ -86,6 +105,8 @@ ALTER TABLE commitments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dead_letter_queue ENABLE ROW LEVEL SECURITY;
 ALTER TABLE employer_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE operational_memory ENABLE ROW LEVEL SECURITY;
+ALTER TABLE failed_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE processed_messages ENABLE ROW LEVEL SECURITY;
 
 -- Rule: Policies should be created during bootstrap based on tenant authentication.
 -- For now, we enforce tenant_id in all queries at the application layer as well.

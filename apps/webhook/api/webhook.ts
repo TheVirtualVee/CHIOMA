@@ -1,12 +1,133 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { createEvent, EVENT_TYPES } from "@chioma/core";
-import { 
-  createSupabaseEventLog, 
-  createConsoleLogger, 
-  createDatabaseClient 
-} from "@chioma/infrastructure";
+import postgres from "postgres";
 
-const logger = createConsoleLogger("webhook-handler");
+/**
+ * api/webhook.ts — Institutional Ingress Boundary
+ * Implements: Signature Validation, Idempotency, Dead-Letter Logging, and Structured Observation.
+ */
+
+const logger = {
+  info: (msg: string, ctx?: any) => console.log(JSON.stringify({ severity: "INFO", message: msg, ...ctx, ts: new Date().toISOString() })),
+  warn: (msg: string, ctx?: any) => console.log(JSON.stringify({ severity: "WARN", message: msg, ...ctx, ts: new Date().toISOString() })),
+  error: (msg: string, ctx?: any) => console.log(JSON.stringify({ severity: "ERROR", message: msg, ...ctx, ts: new Date().toISOString() })),
+};
+
+export default async function handler(req: any, res: any) {
+  const start = Date.now();
+  const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
+  const APP_SECRET = process.env.WHATSAPP_APP_SECRET;
+  const DATABASE_URL = process.env.DATABASE_URL;
+
+  try {
+    // 1. GET Handshake (Verification)
+    if (req.method === "GET") {
+      const mode = req.query["hub.mode"];
+      const token = req.query["hub.verify_token"];
+      const challenge = req.query["hub.challenge"];
+
+      if (mode === "subscribe" && token === VERIFY_TOKEN) {
+        logger.info("WEBHOOK_VERIFIED", { mode });
+        return res.status(200).send(challenge);
+      }
+      return res.status(403).send("Forbidden");
+    }
+
+    // 2. POST Event Ingestion
+    if (req.method === "POST") {
+      if (!APP_SECRET || !DATABASE_URL) {
+        logger.error("INGRESS_BOOT_FAILURE", { reason: "Missing config" });
+        return res.status(500).send("Configuration error");
+      }
+
+      const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+      const signature = req.headers["x-hub-signature-256"];
+
+      // A. Signature Validation
+      if (!validateSignature(rawBody, signature, APP_SECRET)) {
+        logger.warn("INVALID_SIGNATURE", { signature: signature?.slice(0, 16) });
+        return res.status(401).send("Unauthorized");
+      }
+
+      const body = req.body;
+      const entry = body.entry?.[0];
+      const change = entry?.changes?.[0];
+      const value = change?.value;
+      const message = value?.messages?.[0];
+
+      if (!message) {
+        return res.status(200).send("OK"); // Meta status update or non-message event
+      }
+
+      const messageId = message.id;
+      const tenantId = `tenant_${value.metadata?.phone_number_id || 'default'}`;
+      const correlationId = `corr_${messageId}`;
+
+      const sql = postgres(DATABASE_URL, { max: 1, ssl: "require" });
+
+      try {
+        // B. Idempotency Check (Institutional Guard)
+        const [existing] = await sql`SELECT message_id FROM processed_messages WHERE message_id = ${messageId}`;
+        if (existing) {
+          logger.info("DUPLICATE_MESSAGE_REJECTED", { messageId, tenantId, correlationId });
+          return res.status(200).send("OK");
+        }
+
+        // C. Authoritative Event Commit
+        const eventId = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const eventType = "MESSAGE_RECEIVED";
+        const payload = {
+          channel: "whatsapp",
+          from: message.from,
+          text: message.text?.body || "",
+          waMessageId: messageId,
+          raw: body
+        };
+
+        await sql.begin(async (tx) => {
+          // Record processed message for idempotency
+          await tx`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
+          
+          // Commit domain event
+          await tx`
+            INSERT INTO core.events (id, type, payload, tenant_id, correlation_id, version)
+            VALUES (${eventId}, ${eventType}, ${tx.json(payload)}, ${tenantId}, ${correlationId}, '1.1')
+          `;
+        });
+
+        const latency = Date.now() - start;
+        logger.info("EVENT_INGESTED", { 
+          messageId, 
+          tenantId, 
+          correlationId, 
+          eventId, 
+          latency,
+          sender: message.from 
+        });
+
+        return res.status(200).send("OK");
+
+      } catch (err: any) {
+        // D. Dead-Letter Strategy (Ingress Fallback)
+        logger.error("INGESTION_FAILURE", { messageId, tenantId, error: String(err) });
+        
+        await sql`
+          INSERT INTO failed_events (tenant_id, raw_payload, headers, error)
+          VALUES (${tenantId || 'unknown'}, ${sql.json(body)}, ${sql.json(req.headers)}, ${String(err)})
+        `;
+        
+        return res.status(200).send("OK"); // Always ack Meta to prevent aggressive retries if we logged it
+      } finally {
+        await sql.end();
+      }
+    }
+
+    return res.status(405).send("Method Not Allowed");
+
+  } catch (err: any) {
+    logger.error("INGRESS_CRASH", { error: String(err) });
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+}
 
 function validateSignature(rawBody: string, signature: string | null, secret: string): boolean {
   if (!signature?.startsWith("sha256=")) return false;
@@ -14,103 +135,4 @@ function validateSignature(rawBody: string, signature: string | null, secret: st
   const received = signature.slice(7);
   if (expected.length !== received.length) return false;
   return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(received, "hex"));
-}
-
-function extractTextMessage(body: any): { from: string; text: string; waMessageId: string } | null {
-  const entry = body.entry?.[0];
-  const change = entry?.changes?.[0];
-  const value = change?.value;
-  const msg = value?.messages?.[0];
-
-  if (!msg || msg.type !== "text") return null;
-
-  const from = msg.from;
-  const text = msg.text?.body;
-  const waMessageId = msg.id;
-
-  if (!from || !text || !waMessageId) return null;
-  return { from, text, waMessageId };
-}
-
-function resolveTenantId(body: any): string {
-  const phoneId = body.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
-  return phoneId ? `tenant_${phoneId}` : "tenant_default";
-}
-
-export default async function handler(req: any, res: any) {
-  try {
-    const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
-    const APP_SECRET = process.env.WHATSAPP_APP_SECRET;
-    const DATABASE_URL = process.env.DATABASE_URL;
-
-    if (req.method === "GET") {
-      const mode = req.query["hub.mode"];
-      const token = req.query["hub.verify_token"];
-      const challenge = req.query["hub.challenge"];
-
-      if (!VERIFY_TOKEN) {
-        logger.error("BOOT_FAILURE", { reason: "WHATSAPP_VERIFY_TOKEN missing" });
-        return res.status(500).send("Configuration error");
-      }
-
-      if (mode === "subscribe" && token === VERIFY_TOKEN) {
-        logger.info("WEBHOOK_VERIFIED", { mode });
-        return res.status(200).send(challenge ?? "");
-      }
-      return res.status(403).send("Forbidden");
-    }
-
-    if (req.method === "POST") {
-      if (!APP_SECRET || !DATABASE_URL) {
-        logger.error("BOOT_FAILURE", { reason: "WHATSAPP_APP_SECRET or DATABASE_URL missing" });
-        return res.status(500).send("Configuration error");
-      }
-
-      const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-      const signature = req.headers["x-hub-signature-256"];
-
-      if (!validateSignature(rawBody, signature, APP_SECRET)) {
-        logger.warn("WEBHOOK_SIGNATURE_INVALID", { signature: signature?.slice(0, 16) });
-        return res.status(401).send("Unauthorized");
-      }
-
-      const body = req.body;
-      const message = extractTextMessage(body);
-      
-      if (message) {
-        const tenantId = resolveTenantId(body);
-        const event = createEvent(
-          EVENT_TYPES.MESSAGE_RECEIVED,
-          {
-            channel: "whatsapp",
-            from: message.from,
-            text: message.text,
-            waMessageId: message.waMessageId,
-          },
-          tenantId,
-        );
-
-        const sql = await createDatabaseClient(DATABASE_URL, { max: 1 });
-        try {
-          const log = createSupabaseEventLog(sql);
-          await log.append(event);
-
-          logger.info("MESSAGE_RECEIVED_COMMITTED", {
-            eventId: event.id,
-            tenantId,
-            correlationId: event.correlationId,
-          });
-        } finally {
-          await sql.end();
-        }
-      }
-
-      return res.status(200).send("OK");
-    }
-
-    return res.status(405).send("Method Not Allowed");
-  } catch (err: any) {
-    console.error("WEBHOOK_HANDLER_CRASH", err);
-    return res.status(500).json({ error: String(err), stack: err.stack });
-  }
 }

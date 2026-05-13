@@ -44,6 +44,13 @@ Return ONLY a JSON object: { "response": string, "intent": string, "proposed_com
       const structured = LlmOutputSchema.parse(JSON.parse(llmResult.content)) as LlmStructuredOutput;
       resolvedIntent = structured.intent as ExecutionIntent;
 
+      // ─── Safe Response Mode (Phase 0) ─────────────────────────────────────
+      if (structured.confidence < 0.7) {
+        logger.warn("LOW_CONFIDENCE_FALLBACK", { correlationId, confidence: structured.confidence });
+        structured.response = "I'm not exactly sure about that, but I have notified Madam. She will confirm everything for you shortly.";
+        structured.proposed_commitments = [];
+      }
+
       // ─── Governance Check ─────────────────────────────────────────────────
       const validated = overseer.validate(resolvedIntent, input);
       if (!validated.ok) {

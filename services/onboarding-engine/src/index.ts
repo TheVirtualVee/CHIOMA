@@ -70,6 +70,8 @@ export function registerOnboardingEngine(bus: EventBus, sql: postgres.Sql) {
           if (!profile) {
             await sql`INSERT INTO employer_profiles (tenant_id, onboarding_status, current_onboarding_step) VALUES (${tenantId}, 'STARTED', ${firstStep.key})`;
             await bus.publish(createFollowupEvent(EVENT_TYPES.EMPLOYER_ONBOARDING_STARTED, {}, event));
+            // Phase 0: Minimal Registration
+            await bus.publish(createFollowupEvent("EMPLOYER_REGISTERED" as any, { registeredAt: new Date().toISOString() }, event));
           } else {
             await sql`UPDATE employer_profiles SET onboarding_status = 'STARTED', current_onboarding_step = ${firstStep.key} WHERE tenant_id = ${tenantId}`;
           }
