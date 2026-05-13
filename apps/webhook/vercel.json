@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "cd ../.. && npm run build",
+  "buildCommand": "npm run build",
   "outputDirectory": ".vercel/output",
   "functions": {
     "api/webhook.ts": {
