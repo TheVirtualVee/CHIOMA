@@ -1,307 +1,145 @@
 ---
-description: CHIOMA v1.0 — universal source of truth (architecture, events, services, commitments, memory)
+description: CHIOMA v1.1 — universal source of truth (Digital Employee, Staff Loop, Business Knowledge)
 alwaysApply: true
 ---
 
-# CHIOMA SYSTEM — UNIVERSAL SOURCE OF TRUTH (v1.0)
+# CHIOMA SYSTEM — UNIVERSAL SOURCE OF TRUTH (v1.1)
 
 ## 0. SYSTEM DEFINITION
 
-You are generating a production-grade distributed system called CHIOMA.
+You are generating a production-grade digital employee product called CHIOMA.
 
 **CHIOMA is NOT:**
 
-- a chatbot
-- an agent framework
-- a CRM
-- a workflow automation tool
+- a chatbot or assistant
+- an agent framework or orchestration engine
+- a research project or AI lab experiment
+- a generic automation tool
 
 **CHIOMA IS:**
 
-A stateful commercial trust system that operates as a bounded digital employee ("Chioma") inside WhatsApp-based business environments. It ensures continuity of customer interactions, enforces commitments, preserves business memory, and drives revenue reliability without hallucination or uncontrolled autonomy.
+A **hireable digital business employee** that operates within WhatsApp. She manages customer interactions, learns from business social signals, and ensures professional continuity. Every engineering decision must reinforce her identity as reliable, professional staff that a business owner trusts with their revenue.
 
-## 1. CORE DESIGN PRINCIPLES (NON-NEGOTIABLE)
+## 1. CORE DESIGN PRINCIPLES (CHIOMATIC PURITY)
 
-- Commitments are the highest-priority system object.
-- No hallucinated promises are ever allowed.
-- All state changes MUST go through event sourcing.
-- LLMs are stateless and non-authoritative.
-- Safety is a parallel system boundary, not embedded logic.
-- Memory is structured, tiered, and relevance-scored.
-- Every action must be traceable via audit logs.
-- No service directly mutates database state without events.
-- System favors reliability over intelligence.
+- **Employability First**: Every feature must answer: "Would a business owner interpret this as staff behavior?"
+- **Operational Determinism**: Operational rules (hours, pricing, escalation) are code-driven, never LLM-driven.
+- **Conversational Probabilism**: The LLM controls tone and empathy, acting as a renderer, not a governor.
+- **No Silent Failures**: Errors must be observable and explainable.
+- **Event-Sourced Truth**: State transitions are driven by events and contracts.
+- **Social Learning Moat**: CHIOMA personalizes herself by learning from social signals provided by her Employer.
+- **Employer Authority**: Employers lock business knowledge; CHIOMA never hallucinates facts.
 
-## 2. SYSTEM ARCHITECTURE
+## 2. FINAL FOLDER ARCHITECTURE
 
-Generate the system as 8 isolated services:
+The repository is shallow, intentional, and premium.
 
 ```text
-/services
-  ingestion-service
-  intent-service
-  context-compiler
-  llm-orchestrator
-  commitment-engine
-  memory-store
-  escalation-service
-  delivery-service
+/apps
+  /webhook              # Institutional WhatsApp ingress
 
 /core
-  contracts
-  models
-  enums
-  policies
-  utils
+  /staff-loop           # The conversational employment loop
+  /staff-rules          # DETERMINISTIC OPERATIONAL AUTHORITY (Rule Engine)
+  /contracts            # Behavioral staff models and need classifications
+
+/services
+  /response-service     # Generates professional staff replies
+  /onboarding-service   # Employer training and knowledge lock
+  /business-learning    # Social learning from Instagram/TikTok/Web
 
 /infrastructure
-  event-bus
-  database
-  config
-  observability
+  /database             # Persistence (Supabase / Postgres)
+  /config               # Security and environment hardening
 
-/workers
-  commitment-recovery
-  escalation-loop
-  memory-compaction
+/supabase               # Migrations and schema
 ```
 
-## 3. EVENT SOURCED SYSTEM (MANDATORY)
+## 3. STAFF LOOP EVENT SOURCING
 
-All state transitions MUST be stored as immutable events.
+All interactions are driven by an immutable event log.
 
-**Event Types:**
+**Core Event Types:**
 
 - MESSAGE_RECEIVED
-- INTENT_CLASSIFIED
-- COMMITMENT_CREATED
-- COMMITMENT_UPDATED
-- COMMITMENT_RESOLVED
-- ESCALATION_TRIGGERED
-- RESPONSE_SENT
-- MEMORY_UPDATED
+- NEED_CLASSIFIED
+- STAFF_ACTION_TAKEN
+- BUSINESS_KNOWLEDGE_UPDATED
+- OPPORTUNITY_IDENTIFIED
+- OWNER_NOTIFIED
+- REPLY_DELIVERED
 
-## 4. CORE DATA MODELS
+## 4. CORE BEHAVIORAL MODELS
 
-### 4.1 Commitment Object
+### 4.1 Staff Decision (formerly LlmOutput)
 
-A commitment is a tracked social obligation created through interaction.
+The deterministic outcome of a staff loop.
 
-**Must include:**
+- **Staff Reply**: The actual text sent to the customer.
+- **Customer Need**: The inferred need (formerly Intent).
+- **Staff Action**: REPLY, ESCALATE (Notify Owner), SCHEDULE_FOLLOWUP, or IGNORE.
+- **Need Classification**: REVENUE_NOW, REVENUE_SOON, NO_REVENUE, or ESCALATION_REQUIRED.
 
-- origin (explicit or inferred)
-- type (booking, price check, follow-up, escalation, etc.)
-- ambiguity score
-- confidence score
-- deadline (explicit or inferred)
-- status (pending, in_progress, resolved, failed, escalated, abandoned)
-- escalation metadata
-- audit trail
+### 4.2 Business Knowledge (formerly Memory)
 
-**CRITICAL RULE:** A commitment is only created if it passes validation.
+Structured facts about the business.
 
-### 4.2 Customer State
+- **Social Learning**: Facts inferred from social links.
+- **Employer Training**: Facts confirmed or corrected by the Employer.
+- **Customer History**: Past interactions and needs.
 
-Stores only commercial-relevant identity:
+### 4.3 Business Brief (formerly Context)
 
-- purchase history
-- interaction history (summarized)
-- preference signals (behavioral, not personal traits)
-- contact identity
+The packet of information provided to CHIOMA to generate a reply.
 
-No personal sensitive inference allowed.
+1. **Staff Instructions**: Tone, style, and behavioral rules.
+2. **Business Knowledge**: Facts, pricing, and policies.
+3. **Conversation Flow**: Recent interaction history.
+4. **Customer Profile**: Previous needs and opportunities.
 
-### 4.3 Business State
+## 5. SOCIAL LEARNING SYSTEM (THE MOAT)
 
-Static + slowly changing business data:
+CHIOMA's primary advantage is how fast she learns.
 
-- products
-- pricing
-- policies
-- availability rules
-- escalation contacts
-- tone configuration
+1. **Analyze**: Extract products, tone, pricing, and FAQ signals from social links.
+2. **Draft**: Present a "Business Understanding" to the Employer.
+3. **Correct**: Employer provides feedback to lock the knowledge.
+4. **Persist**: Locked knowledge becomes the authoritative Staff Instructions.
 
-## 5. MEMORY SYSTEM (3 TIERS)
+## 6. STAFF REPLY GENERATION
 
-**HOT MEMORY**
+The Response Service is responsible for generating replies that sound like professional staff.
 
-- active conversation
-- active commitments
-- session state
+- **Tone Lock**: Adheres strictly to the profile (Friendly, Luxury, Street-smart, etc.).
+- **Conciseness**: No "robotic AI talk" or "as an AI assistant" phrases.
+- **Revenue Driven**: Identifies customer opportunities and prioritizes them.
 
-**WARM MEMORY**
+## 7. STAFF LOOP EXECUTION PIPELINE (THE AUTHORITY MODEL)
 
-- last 30–365 days interactions
-- purchase history
-- preference signals
+Every message follows a strict Deterministic-Probabilistic-Deterministic sandwich:
 
-**COLD MEMORY**
+1. **Deterministic Pre-Processor**: 
+   - Check onboarding state.
+   - Fetch Employer profile and business knowledge.
+   - Run Rule Engine to determine "Allowed Actions" (e.g., check business hours).
 
-- archived logs
-- historical interactions (>1 year)
+2. **Probabilistic Conversational Renderer (LLM)**:
+   - Generate a human-like staff reply using the Business Brief.
+   - Propose a staff action based on the interaction.
 
-**RULE:** Only HOT + relevant WARM memory is injected into LLM context.
+3. **Deterministic Post-Processor**:
+   - Validate the proposed action against the Rule Engine.
+   - Sanitize the reply (cross-reference against business facts).
+   - Execute consequence (DB update, notification).
+   - Persist event to the audit log.
 
-## 6. CONTEXT COMPILER (CORE ENGINE)
+## 8. SYSTEM EXECUTION RULE
 
-The Context Compiler builds the LLM input context using strict layered assembly.
-
-**REQUIRED SUBSYSTEMS:**
-
-- retrieval (embedding search)
-- reranker (cross-encoder scoring)
-- relevance scorer
-- summarizer
-- token optimizer
-- safety filter (parallel)
-
-**CONTEXT BUILD ORDER (STRICT):**
-
-1. Safety Layer (always)
-2. Active Conversation
-3. Active Commitments
-4. Ranked Customer Memory
-5. Relevant Business Facts
-6. Behavioral Policy
-
-**RETRIEVAL PIPELINE:**
-
-- Vector search (top 100 results)
-- Cross-encoder rerank (top 20–50)
-- Relevance scoring: intent alignment; commitment relevance boost; recency weighting; business priority weighting
-
-**TOKEN RULE:** If token budget exceeded: compress WARM and COLD memory only — NEVER compress safety or commitments.
-
-## 7. LLM ORCHESTRATION LAYER
-
-The LLM is ONLY responsible for:
-
-**Input:** ContextPacket, User message
-
-**Output MUST be structured:**
-
-```json
-{
-  "response": "string",
-  "intent": "string",
-  "proposed_commitments": [],
-  "confidence": float
-}
-```
-
-**RULES:**
-
-- LLM cannot mutate state
-- LLM cannot persist memory
-- LLM cannot finalize commitments
-
-## 8. COMMITMENT ENGINE (CORE TRUST SYSTEM)
-
-**Responsibilities:**
-
-- create commitments ONLY after validation
-- update commitments via events
-- resolve commitments
-- fail commitments
-- track deadlines
-
-**VALIDATION GATE (CRITICAL)**
-
-A commitment MUST NOT be created unless:
-
-- business state supports it
-- feasibility is confirmed
-- ambiguity score is acceptable
-- system confidence threshold is met
-
-If validation fails → regenerate response with stricter constraints.
-
-## 9. COMMITMENT STATE MACHINE
-
-**Valid states:** pending, in_progress, escalated, resolved, failed, abandoned
-
-**Rules:**
-
-- transitions MUST be event-driven
-- no direct state mutation
-- all transitions logged
-
-## 10. ESCALATION SYSTEM (BACKGROUND WORKER)
-
-**Monitors:** overdue commitments; stalled workflows; missing human responses
-
-**Actions:** escalate to owner; notify customer; attempt recovery message; mark failure if unresolved
-
-## 11. DELIVERY SERVICE
-
-Handles external communication (WhatsApp).
-
-**Responsibilities:** send messages; confirm delivery; log events
-
-No business logic allowed.
-
-## 12. SAFETY SYSTEM (PARALLEL SERVICE)
-
-Must run: before context compilation; after LLM generation
-
-**Checks:** policy violations; unsafe outputs; sensitive data leakage
-
-Must be independent service, not embedded logic.
-
-## 13. SYSTEM EXECUTION PIPELINE
-
-Every message follows:
-
-INGESTION → INTENT CLASSIFICATION → COMMITMENT RESOLUTION (pre-context) → CONTEXT COMPILATION → LLM GENERATION → COMMITMENT EXTRACTION → VALIDATION GATE → MEMORY UPDATE → DELIVERY → AUDIT LOGGING
-
-## 14. BACKGROUND WORKERS
-
-- commitment-recovery-loop
-- escalation-loop
-- memory-compaction
-
-Must run independently of request pipeline.
-
-## 15. METRICS (SYSTEM HEALTH)
-
-Must implement:
-
-- Commitment Survival Rate (CSR) — PRIMARY success metric
-- Escalation accuracy
-- Response latency
-- Memory relevance score
-- Trust continuity index
-
-## 16. FAILURE HANDLING RULES
-
-System MUST explicitly handle: missing business data; ambiguous intent; delayed human response; conflicting memory; multi-intent messages
-
-**Default behavior:** escalate or request clarification — NEVER guess
-
-## 17. BOOT SEQUENCE
-
-On startup: Load business state → Hydrate memory store → Restore active commitments → Start event bus → Start workers → Activate ingestion layer → System ready
-
-## 18. CODE GENERATION INSTRUCTIONS
-
-When generating code:
-
-- Use strict modular separation
-- No service cross-imports except via contracts
-- All communication via JSON events/contracts
-- All state changes must pass event bus
-- No hidden side effects
-- All outputs must be structured
-- All services independently runnable
-- Maintain event sourcing everywhere
-
-## 19. FINAL SYSTEM IDENTITY
-
-CHIOMA is a commercial trust continuity engine that behaves like a bounded digital employee operating inside conversational infrastructure.
-
-**Its goal is NOT intelligence.**
-
-**Its goal is:** reliable business presence under uncertainty.
+Before merging any change, verify it increases:
+- **Employability**: Does it make her a better employee?
+- **Trust**: Does it increase owner confidence?
+- **Operational Reliability**: Is it deterministic where it matters?
+- **Conversational Realism**: Does it sound like a person?
 
 **END OF SOURCE OF TRUTH**
+

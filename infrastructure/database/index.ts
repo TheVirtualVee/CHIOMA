@@ -32,16 +32,18 @@ export async function commitEvent(
     payload: any;
     tenantId: string;
     correlationId: string;
+    causationId: string;
   }
 ) {
   await sql`
-    INSERT INTO core.events (id, type, payload, tenant_id, correlation_id)
+    INSERT INTO core.events (id, type, payload, tenant_id, correlation_id, causation_id)
     VALUES (
       ${event.id},
       ${event.type},
       ${sql.json(event.payload)},
       ${event.tenantId},
-      ${event.correlationId}
+      ${event.correlationId},
+      ${event.causationId}
     )
   `;
 }

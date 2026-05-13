@@ -1,20 +1,17 @@
 import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
 import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient, commitEvent } from "../../../infrastructure/database/index.js";
-import { runSyncPipeline } from "../../../core/runtime/index.js";
+import { runStaffLoop } from "../../../core/staff-loop/index.js";
 
 /**
  * api/webhook.ts
  *
- * Institutional ingress for WhatsApp Cloud API.
- * Validates signatures, enforces idempotency, and triggers the sync pipeline.
+ * CHIOMA WhatsApp Webhook Handler.
  */
 
 export default async function handler(req: any, res: any) {
   const start = Date.now();
   
-  // 1. Handle Meta Verification (GET)
-  // This must be independent of full config validation to allow bootstrapping.
   if (req.method === "GET") {
     const mode = req.query["hub.mode"];
     const token = req.query["hub.verify_token"];
@@ -24,16 +21,13 @@ export default async function handler(req: any, res: any) {
     if (mode === "subscribe" && token === verifyToken) {
       return res.status(200).send(challenge);
     }
-    console.warn("WEBHOOK_VERIFY_FAILED", { received: token, expected: verifyToken });
     return res.status(403).send("Forbidden");
   }
 
-  // 2. Validate Full Config for Processing (POST)
   let config;
   try {
     config = validateConfig();
   } catch (err) {
-    console.error("CONFIG_ERROR_DURING_POST");
     return res.status(500).send("Configuration incomplete");
   }
 
@@ -68,18 +62,26 @@ export default async function handler(req: any, res: any) {
           type: "MESSAGE_RECEIVED",
           payload: { channel: "whatsapp", from: message.from, text: message.text?.body || "", waMessageId: messageId },
           tenantId,
-          correlationId
+          correlationId,
+          causationId: correlationId // For the first event, correlation is causation
         });
       });
 
-      const result = await runSyncPipeline(
-        { tenantId, senderPhone: message.from, messageText: message.text?.body || "", correlationId, eventId, channel: "whatsapp" },
+      const result = await runStaffLoop(
+        { 
+          tenantId, 
+          senderPhone: message.from, 
+          messageText: message.text?.body || "", 
+          correlationId, 
+          causationId: eventId, 
+          eventId, 
+          channel: "whatsapp" 
+        },
         sql,
         { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
       );
 
-      // --- META RESPONSE STEP ---
-      // Send the reply back to the customer via Graph API
+
       if (result.responseText) {
         const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
         const phoneNumberId = body.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
@@ -94,11 +96,11 @@ export default async function handler(req: any, res: any) {
         }
       }
 
-      console.log("EXECUTION_COMPLETE", { messageId, tenantId, latency: Date.now() - start, type: result.responseType });
+      console.log("STAFF_LOOP_COMPLETE", { messageId, tenantId, latency: Date.now() - start });
       return res.status(200).send("OK");
 
     } catch (err) {
-      console.error("INGESTION_FAILURE", { messageId, error: String(err) });
+      console.error("WEBHOOK_PROCESSING_FAILURE", { messageId, error: String(err) });
       return res.status(200).send("OK");
     } finally {
       await sql.end();
@@ -114,3 +116,4 @@ function validateSignature(rawBody: string, signature: string | null, secret: st
   const received = signature.slice(7);
   return expected.length === received.length && timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(received, "hex"));
 }
+

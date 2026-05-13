@@ -2,10 +2,10 @@ import { z } from "zod";
 import type { BusinessDraft } from "../../core/contracts/index.js";
 
 /**
- * services/business-understanding-engine/index.ts
+ * services/business-learning/index.ts
  *
- * CHIOMA Business Understanding Engine.
- * Ingests links, generates drafts, and manages validation loops.
+ * CHIOMA BUSINESS LEARNING.
+ * Analyzes social media and website signals to train the digital employee.
  */
 
 const BusinessDraftSchema = z.object({
@@ -23,8 +23,8 @@ export async function generateBusinessDraft(
 ): Promise<BusinessDraft> {
   const combinedText = linkContents.join("\n\n---\n\n");
 
-  const systemPrompt = `You are CHIOMA, a new digital employee learning about a business.
-Read the following public data from the business's social links and provide a structured draft of what you understand.
+  const staffInstructions = `You are CHIOMA, a new digital employee learning about a business.
+Read the following public data from the business's social links and provide a structured draft of what you understand about your new employer's business.
 This is INFERENCE, not truth. Be honest about confidence.
 
 EXTRACT:
@@ -55,7 +55,7 @@ Return ONLY JSON:
     body: JSON.stringify({
       model: "llama-3.3-70b-versatile",
       messages: [
-        { role: "system", content: systemPrompt },
+        { role: "system", content: staffInstructions },
         { role: "user", content: `SOCIAL DATA:\n${combinedText}` },
       ],
       temperature: 0,
@@ -63,7 +63,7 @@ Return ONLY JSON:
     }),
   });
 
-  if (!response.ok) throw new Error(`LLM_API_ERROR: ${response.status}`);
+  if (!response.ok) throw new Error(`BUSINESS_LEARNING_ERROR: ${response.status}`);
 
   const data = await response.json();
   const rawContent = data.choices[0].message.content;
@@ -71,8 +71,8 @@ Return ONLY JSON:
   return BusinessDraftSchema.parse(JSON.parse(rawContent)) as BusinessDraft;
 }
 
-export function formatDraftForOwner(draft: BusinessDraft): string {
-  return `I've read through your links! Here is what I've understood so far:
+export function formatDraftForEmployer(draft: BusinessDraft): string {
+  return `I've finished my research! Here is what I've learned about your business:
 
 🏢 *Business Name*: ${draft.name_guess}
 🛍️ *What you sell*: ${draft.products_guess.join(", ")}
@@ -83,3 +83,4 @@ export function formatDraftForOwner(draft: BusinessDraft): string {
 
 Does this look correct to you? Please tell me what I should fix or add!`;
 }
+

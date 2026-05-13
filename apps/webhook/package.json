@@ -6,8 +6,8 @@
   "dependencies": {
     "@chioma/core": "*",
     "@chioma/infrastructure": "*",
-    "@chioma/llm-orchestrator": "*",
-    "@chioma/onboarding-engine": "*",
+    "@chioma/response-service": "*",
+    "@chioma/onboarding-service": "*",
     "postgres": "^3.4.9",
     "zod": "^3.23.8"
   }

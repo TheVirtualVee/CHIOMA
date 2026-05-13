@@ -1,46 +1,40 @@
-# CHIOMA — Agent entry and universal governance
+# CHIOMA — Digital Employee universal governance
 
-All agentic coding systems (Cursor, Claude Code, Codex, other IDE agents, automation that edits this repo) MUST use this file as the **single front door** before making any change.
+All coding systems (Cursor, Claude Code, Codex, other IDE agents, automation) MUST use this file as the **single front door** before making any change.
+
+## Product Identity: CHIOMATIC PURITY
+
+CHIOMA is a **hireable digital business employee**. She is NOT an orchestration framework, AI agent, or experimental bot. Every engineering decision must reinforce her identity as professional staff that small businesses hire.
 
 ## Universal governor (behavior and execution)
 
-The **Engineering Execution Constitution** is the universal behavioral governor for the entire codebase. It overrides convenience, style preferences, and speculative features when they conflict with reliability, trust continuity, or architectural discipline.
-
-Canonical copy:
+The **Engineering Execution Constitution** is the universal behavioral governor for the entire codebase. 
 
 - `.cursor/rules/chioma-engineering-constitution.mdc`
 
 ## Mandatory reading order (do not skip)
 
-Read in this order before planning or editing:
-
-1. `.cursor/rules/chioma-engineering-constitution.mdc` — reliability, no silent failure, event sourcing, LLM non-authority, commitments first, observability, solo-founder operability, production vs stub discipline.
+1. `.cursor/rules/chioma-engineering-constitution.mdc` — reliability, no silent failure, event sourcing, commitments first.
 2. `.cursor/rules/chioma-system-ssot.mdc` — product and system architecture source of truth.
-3. `.cursor/rules/chioma-continuation-v1-1.mdc` — v1.1 additive evolution (no re-engineering stable foundations).
-4. `.cursor/rules/llm-coding-directive.mdc` — contract-first, tests, surgical edits, audit trace expectations.
-
-### If rules appear to conflict
-
-- **Safety, reliability, observability, “never guess”** — follow the **Constitution**.
-- **What CHIOMA is and service boundaries** — follow the **SSOT**.
-- **Agreed v1.1 evolution** — follow **continuation v1.1**.
-- **How to write and verify code** — follow the **LLM coding directive**.
-
-If still ambiguous: stop, ask the human, or open a minimal design note in the PR description; do not invent resolution silently.
+3. `.cursor/rules/llm-coding-directive.mdc` — contract-first, tests, surgical edits.
 
 ## Hard gates (never violate)
 
-- No silent failures: errors must be observable, explainable, and not swallowed.
-- Event-sourced boundaries: no hidden cross-service state coupling; state transitions via events and contracts.
-- LLMs are non-authoritative: proposals only until validation and event-driven truth.
-- Commitments and tenant isolation are protected; never weaken validation gates for speed.
-- Do not redesign stable foundations without explicit human approval.
+- No silent failures: errors must be observable and explainable.
+- Event-sourced boundaries: state transitions via events and contracts.
+- LLMs are non-authoritative: proposals only until validation.
+- Employability First: Every feature must answer "Would a business owner interpret this as staff behavior?"
 
-## Repo quick map
+## Repo map
 
-- Packages: `apps/webhook`, `services/llm-orchestrator`, `services/onboarding-engine`, `core/contracts`, `core/runtime`, `infrastructure/database`, `infrastructure/config`.
-- Production: `npm run build:webhook`, `npm run dev`.
+- `/apps/webhook`: Institutional WhatsApp ingress.
+- `/core/staff-loop`: The conversational employment loop.
+- `/services/response-service`: Generates professional staff replies.
+- `/services/onboarding-service`: Employer training and knowledge lock.
+- `/services/business-learning`: Social learning from Instagram/TikTok/Web.
+- `/core/contracts`: Behavioral staff models and need classifications.
 
-## EDGES and operational memory
+## Operational memory
 
-- `EDGES_LOG.md` — append material edge cases discovered during work (multi-tenant, replay, synthesis provenance, etc.).
+- `EDGES_LOG.md` — material edge cases discovered during work.
+

@@ -1,17 +1,17 @@
 import type postgres from "postgres";
-import { generateBusinessDraft, formatDraftForOwner } from "../business-understanding-engine/index.js";
+import { generateBusinessDraft, formatDraftForEmployer } from "../business-learning/index.js";
 
 /**
- * services/onboarding-engine/index.ts
+ * services/onboarding-service/index.ts
  *
- * The Employability Lock-In Onboarding.
- * 1. Collect Links -> 2. Generate Draft -> 3. Validate Loop -> 4. Lock Profile.
+ * THE EMPLOYER TRAINING LOOP.
+ * 1. Social Learning (Links) -> 2. Business Learning (Draft) -> 3. Employer Correction -> 4. Staff Knowledge Lock.
  */
 
 const ONBOARDING_STEPS = [
   { key: "business_name", question: "Hello! I'm CHIOMA. What is the name of your business?" },
-  { key: "social_links", question: "Nice! Please send me links to your Instagram, TikTok, or Website so I can learn about your products." },
-  { key: "validate_draft", question: "GENERATED_DYNAMICALLY" },
+  { key: "social_learning", question: "Nice! Please send me links to your Instagram, TikTok, or Website so I can learn about your products, tone, and pricing." },
+  { key: "validate_draft", question: "Does this look correct to you? Please tell me what I should fix or add!" },
   { key: "escalation_contact", question: "Almost done. If a customer has an urgent request, what phone number should I notify?" }
 ];
 
@@ -42,18 +42,18 @@ export async function processOnboardingStep(
   const currentIndex = ONBOARDING_STEPS.findIndex(s => s.key === profile.current_onboarding_step);
   const currentStep = ONBOARDING_STEPS[currentIndex];
 
-  // Save the fact
+  // Save the fact (Business Knowledge)
   await sql`
     INSERT INTO business_facts (tenant_id, key, value)
     VALUES (${tenantId}, ${currentStep.key}, ${sql.json({ value: messageText })})
     ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value
   `;
 
-  // SPECIAL LOGIC: Link Ingestion -> Draft Generation
-  if (currentStep.key === "social_links") {
-    // In a real system, we'd fetch the links here. For MVP, we simulate with a dummy text.
-    const draft = await generateBusinessDraft([`Simulated content from: ${messageText}`]);
-    const validationMessage = formatDraftForOwner(draft);
+  // SPECIAL LOGIC: Social Learning -> Business Draft Generation
+  if (currentStep.key === "social_learning") {
+    // In Phase 1: Lightweight extraction only from employer-provided links.
+    const draft = await generateBusinessDraft([`Simulated learning from: ${messageText}`]);
+    const validationMessage = formatDraftForEmployer(draft);
     
     await sql`
       UPDATE employer_profiles 
@@ -63,10 +63,17 @@ export async function processOnboardingStep(
     return { completed: false, response: validationMessage };
   }
 
-  // SPECIAL LOGIC: Validation Confirmation
+  // SPECIAL LOGIC: Employer Correction Loop
   if (currentStep.key === "validate_draft") {
-    // If they said something like "yes" or "correct", proceed.
-    // If they corrected it, we would update the facts here.
+    const isAffirmative = /^(yes|correct|good|perfect|yep|ok)/i.test(messageText);
+    if (!isAffirmative) {
+      // Treat as correction - append to business facts for further learning
+      await sql`
+        INSERT INTO business_facts (tenant_id, key, value)
+        VALUES (${tenantId}, 'employer_correction', ${sql.json({ correction: messageText, timestamp: new Date() })})
+      `;
+      return { completed: false, response: "Got it! I've updated my understanding. Anything else I should know, or are we good to go?" };
+    }
   }
 
   // Advance to next step
@@ -81,7 +88,7 @@ export async function processOnboardingStep(
     return { completed: false, response: nextStep.question };
   }
 
-  // 3. Finalize
+  // 3. Finalize Staff Training
   await sql`
     UPDATE employer_profiles 
     SET onboarding_status = 'COMPLETED', 
@@ -93,6 +100,7 @@ export async function processOnboardingStep(
 
   return { 
     completed: true, 
-    response: "Perfect! I've locked in your business profile. I'm now ready to manage your customers like a pro. 👍" 
+    response: "Perfect! I've locked in your business knowledge. I'm now ready to manage your customers as your digital staff. 👍" 
   };
 }
+

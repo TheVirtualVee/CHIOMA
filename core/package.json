@@ -5,6 +5,6 @@
   "type": "module",
   "exports": {
     "./contracts": "./contracts/index.ts",
-    "./runtime": "./runtime/index.ts"
+    "./staff-loop": "./staff-loop/index.ts"
   }
 }

@@ -1,58 +1,56 @@
-# CHIOMA
+# CHIOMA — Hireable Digital Business Employee
 
-**A real-time conversational employee runtime for Nigerian businesses, operating via WhatsApp.**
+**Professional digital staff for businesses, operating via WhatsApp.**
 
-CHIOMA is a deterministic execution runtime deployed on Vercel. It allows businesses to handle customer inquiries, onboarding, and business memory reliably through a single synchronous pipeline.
-
----
-
-## What it does
-
-- **Instant Ingress**: Receives and validates WhatsApp messages in real-time.
-- **Conversational Onboarding**: Automatically guides business owners through setup via chat.
-- **Synchronous Intelligence**: Uses LLM orchestration to classify intent and generate responses inline.
-- **Event-Sourced Memory**: Persists every interaction to a Supabase event log for auditable business history.
-- **Zero-Latency Response**: Executes the entire cognition pipeline and delivers a reply within the 5s webhook window.
+CHIOMA is a hireable digital employee product. She manages customer inquiries, learns from business social signals, and ensures professional continuity. She is NOT a chatbot; she is staff.
 
 ---
 
-## Simplified Architecture
+## What CHIOMA Does
 
-CHIOMA operates as a single-runtime execution engine:
+- **Institutional Ingress**: Securely manages WhatsApp communication.
+- **Social Learning**: Personalizes her behavior by analyzing business social media and website signals.
+- **Staff Decision Loop**: Executes professional staff replies grounded in business knowledge.
+- **Knowledge Lock**: Persists business facts and policies confirmed by the Employer.
+- **Revenue Driven**: Identifies customer opportunities and prioritizes commercial outcomes.
+
+---
+
+## The Staff Loop
+
+CHIOMA operates as a focused staff loop:
 
 ```
-WhatsApp → Vercel Webhook (Sync Runtime) → WhatsApp
-                   ↓
-           Supabase Event Log
+WhatsApp → Webhook Handler → Staff Loop (Decision) → WhatsApp
+                        ↓
+               Business Knowledge Base
 ```
 
-**Runtime Reality:**
-- **Entrypoint**: `apps/webhook/api/webhook.ts`
-- **Execution Engine**: `core/runtime/index.ts`
-- **Database**: Supabase (PostgreSQL)
-- **Host**: Vercel (Serverless)
+**Architecture Map:**
+- **Institutional Ingress**: `apps/webhook/api/webhook.ts`
+- **Staff Loop**: `core/staff-loop/index.ts`
+- **Response Service**: `services/response-service/index.ts`
+- **Knowledge Base**: Supabase (Postgres)
 
 ---
 
-## Quick Start (Vercel Only)
+## Quick Start
 
-### 1. Database Setup (Supabase)
+### 1. Database (Supabase)
 1. Create a project at [supabase.com](https://supabase.com).
 2. Apply migrations: `npm run db:push`.
 
 ### 2. Configuration (Vercel)
-Set these environment variables in your Vercel project:
-- `DATABASE_URL`: Your Supabase connection string.
+Set these environment variables:
+- `DATABASE_URL`: Connection string.
 - `LLM_API_KEY`: Groq or OpenAI API Key.
-- `LLM_PROVIDER`: `groq` (recommended) or `openai`.
-- `WHATSAPP_ACCESS_TOKEN`: From Meta Developer Portal.
-- `WHATSAPP_PHONE_NUMBER_ID`: From Meta Developer Portal.
-- `WHATSAPP_APP_SECRET`: From Meta Developer Portal.
+- `LLM_PROVIDER`: `groq` or `openai`.
+- `WHATSAPP_ACCESS_TOKEN`: Meta Developer Portal.
+- `WHATSAPP_PHONE_NUMBER_ID`: Meta Developer Portal.
 - `WHATSAPP_VERIFY_TOKEN`: Your chosen random string.
 
 ### 3. Deploy
 ```bash
-# From root
 vercel deploy --prod
 ```
 
@@ -60,35 +58,37 @@ vercel deploy --prod
 
 ## Project Structure
 
-Normalized for minimal cognitive noise and production-grade review:
+Purified for operational clarity and premium performance:
 
-- **`apps/webhook/`**: Live ingress boundary (WhatsApp + Simulation).
-- **`core/runtime/`**: The synchronous execution "brain".
-- **`core/contracts/`**: Consolidated types and event schemas.
-- **`services/onboarding-engine/`**: Business setup flow logic.
-- **`services/llm-orchestrator/`**: AI response generation and validation.
-- **`infrastructure/database/`**: Shared DB client and persistence.
-- **`infrastructure/config/`**: Environment validation.
+- **`apps/webhook/`**: WhatsApp Institutional Ingress.
+- **`core/staff-loop/`**: The conversational employment loop.
+- **`core/contracts/`**: Behavioral staff models and need classifications.
+- **`services/onboarding-service/`**: Employer training and setup flow.
+- **`services/response-service/`**: Professional staff reply generation.
+- **`services/business-learning/`**: Social learning (Instagram/TikTok/Web).
+- **`infrastructure/`**: Shared database and security configuration.
 
 ---
 
-## Development & Simulation
+## Hire CHIOMA via Simulation
 
-Use the simulation endpoint to test the full pipeline without WhatsApp credentials:
+Test the full staff loop without WhatsApp credentials:
 
 ```bash
 POST /api/simulate-message
 {
   "tenantId": "test_business",
   "from": "+2348000000000",
-  "text": "Hello, I want to set up my shop."
+  "text": "Hello, I want to hire you."
 }
 ```
 
 ---
 
-## Core Invariants
-1. **Single Execution Truth**: HTTP Input → Sync Processing → Response.
-2. **Authoritative Event Log**: Every message is committed before processing.
-3. **LLM Non-Authority**: AI output is validated via Zod before use.
-4. **Tenant Isolation**: All data access is strictly scoped to `tenantId`.
+## Core Principles
+
+1. **Employability First**: CHIOMA behaves like professional staff.
+2. **Reliability > Intelligence**: Reliable business presence under uncertainty.
+3. **Knowledge Lock**: Every business fact is confirmed by the Employer.
+4. **No Silent Failures**: Every interaction is observable and explainable.
+

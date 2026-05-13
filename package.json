@@ -17,16 +17,17 @@
     "db:pull": "supabase db pull --db-url \"$DATABASE_URL\"",
     "db:reset": "supabase db reset --db-url \"$DATABASE_URL\"",
     "deploy:check": "node scripts/deploy-check.mjs",
+    "overseer:check": "node scripts/overseer.mjs",
     "build:webhook": "npm run build --workspace=@chioma/webhook",
     "deploy:webhook": "cd apps/webhook && vercel deploy --prod"
   },
   "dependencies": {
     "@chioma/core": "*",
     "@chioma/infrastructure": "*",
-    "@chioma/llm-orchestrator": "*",
-    "@chioma/onboarding-engine": "*",
-    "@chioma/employability-engine": "*",
-    "@chioma/business-understanding-engine": "*",
+    "@chioma/response-service": "*",
+    "@chioma/onboarding-service": "*",
+    "@chioma/employment-logic": "*",
+    "@chioma/business-learning": "*",
     "postgres": "^3.4.9",
     "zod": "^3.23.8"
   },
