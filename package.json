@@ -23,12 +23,12 @@
     "vercel:typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {
-    "@chioma/core": "*",
-    "@chioma/infrastructure": "*",
-    "@chioma/response-service": "*",
-    "@chioma/onboarding-service": "*",
-    "@chioma/employment-logic": "*",
     "@chioma/business-learning": "*",
+    "@chioma/core": "*",
+    "@chioma/employment-logic": "*",
+    "@chioma/infrastructure": "*",
+    "@chioma/onboarding-service": "*",
+    "@chioma/response-service": "*",
     "postgres": "^3.4.9",
     "zod": "^3.23.8"
   },
@@ -38,7 +38,7 @@
     "dotenv": "^17.4.2",
     "tsx": "^4.21.0",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.9"
   },
   "engines": {
     "node": ">=18"

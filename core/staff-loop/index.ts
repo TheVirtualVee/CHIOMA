@@ -65,16 +65,21 @@ export async function runStaffLoop(
         revenue_weight: proposedDecision.suggested_action.revenue_weight,
         need_classification: proposedDecision.suggested_action.need_classification
       },
-      { currentTime: new Date(), profile, customerState: state }
+      { 
+        currentTime: new Date(), 
+        profile, 
+        customerState: state,
+        llmConfidence: proposedDecision.confidence 
+      }
     );
 
-    // 6. DETERMINISTIC POST-PROCESSING (Sanitization)
-    const sanitizedReply = sanitizeStaffReply(proposedDecision.response, facts);
+    // 6. DETERMINISTIC POST-PROCESSING (Sanitization & Price Lock)
+    const { sanitizedReply, actionOverride } = sanitizeStaffReply(proposedDecision.response, facts);
 
     const finalDecision: StaffDecision = {
       response: sanitizedReply,
       customer_need: proposedDecision.customer_need,
-      action: validatedAction,
+      action: actionOverride ? { ...validatedAction, type: actionOverride, urgency: "HIGH" } : validatedAction,
       confidence: proposedDecision.confidence
     };
 

@@ -32,6 +32,7 @@ describe("Phase 4 — Deterministic Authority Engine", () => {
     currentTime: new Date("2024-01-15T14:00:00Z"), // 2pm — within hours
     profile: baseProfile,
     customerState: null,
+    llmConfidence: 1.0,
   };
 
   describe("Rule Engine Authority", () => {
@@ -78,44 +79,35 @@ describe("Phase 4 — Deterministic Authority Engine", () => {
 
     it("sanitizeStaffReply strips invented prices not in business facts", () => {
       // ASSERT: LLM hallucinating a price that is not in verified business facts
-      // must be neutralized before the customer sees it.
-      // Counterexample: LLM says "₦50,000" but no such price exists in facts.
-      const hallucinated = "The 6-yards blue lace is ₦50,000 and we have plenty in stock!";
+      const hallucinated = "The 6-yards blue lace is ₦50,000!";
       const verifiedFacts = [
         { key: "product_blue_lace", value: "available" },
-        // Note: no price fact exists
+        { key: "item_price", value: "45000" } // 45k is verified, 50k is not
       ];
 
-      const sanitized = sanitizeStaffReply(hallucinated, verifiedFacts);
+      const { sanitizedReply, actionOverride } = sanitizeStaffReply(hallucinated, verifiedFacts);
 
-      // Sanitized reply must NOT contain a fabricated price
-      // (either price is removed, or the reply is reformulated without it)
-      const containsHallucinatedPrice = sanitized.includes("₦50,000") || sanitized.includes("50000");
-      // If the price is in verified facts, it would be allowed — here it's not.
-      // The sanitizer should either remove it or replace with "please confirm"
-      expect(typeof sanitized).toBe("string");
-      expect(sanitized.length).toBeGreaterThan(0);
-      // Core invariant: reply must not be empty after sanitization
+      expect(sanitizedReply).toContain("[Price pending verification]");
+      expect(actionOverride).toBe("ESCALATE");
     });
 
     it("sanitizeStaffReply preserves valid business facts", () => {
-      const reply = "We have the blue lace available for you!";
+      const reply = "We have the blue lace available for ₦45,000!";
       const verifiedFacts = [
         { key: "product_blue_lace", value: "available" },
-        { key: "business_hours", value: "9am-6pm" },
+        { key: "lace_price", value: "45000" },
       ];
 
-      const sanitized = sanitizeStaffReply(reply, verifiedFacts);
-      // Valid reply without hallucinations must pass through intact
-      expect(sanitized).toContain("blue lace");
+      const { sanitizedReply, actionOverride } = sanitizeStaffReply(reply, verifiedFacts);
+      expect(sanitizedReply).toContain("₦45,000");
+      expect(actionOverride).toBeUndefined();
     });
 
     it("sanitizeStaffReply does not produce an empty string", () => {
-      // Counterexample: aggressive sanitizer strips everything, leaving silence
       const reply = "Our products are great!";
       const facts: any[] = [];
-      const sanitized = sanitizeStaffReply(reply, facts);
-      expect(sanitized.length, "sanitizer must never return empty string").toBeGreaterThan(0);
+      const { sanitizedReply } = sanitizeStaffReply(reply, facts);
+      expect(sanitizedReply.length).toBeGreaterThan(0);
     });
   });
 
