@@ -4,65 +4,59 @@ import type { LlmOutput } from "../../core/contracts/index.js";
 /**
  * services/llm-orchestrator/index.ts
  *
- * Handles all AI interactions. Enforces structured output validation.
- * Optimized for Revenue Event Detection.
+ * The Employee's Brain.
+ * Classified messages into revenue-priority staff actions.
  */
 
 const LlmOutputSchema = z.object({
   response: z.string().min(1),
   intent: z.string(),
-  is_revenue_intent: z.boolean().default(false),
-  revenue_classification: z.object({
-    type: z.enum(["BUY_INTENT", "INQUIRY", "SUPPORT", "OTHER"]),
+  action: z.object({
+    type: z.enum(["REPLY", "ESCALATE", "SCHEDULE_FOLLOWUP", "IGNORE"]),
     urgency: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]),
-    value_estimate: z.number().optional(),
-    recommended_action: z.enum(["RESPOND_IMMEDIATELY", "ESCALATE_TO_OWNER", "SCHEDULE_FOLLOWUP", "IGNORE"]),
-  }).optional(),
-  proposed_commitments: z.array(z.any()),
+    revenue_weight: z.number().min(0).max(1),
+    intent_classification: z.enum(["REVENUE_NOW", "REVENUE_SOON", "NO_REVENUE", "ESCALATION_REQUIRED"]),
+  }),
   confidence: z.number().min(0).max(1),
 });
 
-export async function generateResponse(
+export async function generateStaffResponse(
   message: string,
   context: string,
-  config: { apiKey: string; provider: string; model?: string; tone?: string }
+  profile: any
 ): Promise<LlmOutput> {
-  const systemPrompt = `You are CHIOMA, a real-time revenue reflex layer for small businesses.
-TONE PROFILE: ${config.tone || "friendly-shopkeeper"}
-BUSINESS CONTEXT:
+  const systemPrompt = `You are the digital staff for "${profile.business_name}".
+TONE: ${profile.tone_profile}
+STYLE: ${profile.response_style}
+CONTEXT:
 ${context || "(No facts provided)"}
+
+BEHAVIORAL RULES:
+- Never leave a message idle. Always end with a question, confirmation, or action.
+- Be concise. Use local-style phrasing (Nigerian SMB context). No robotic AI talk.
+- Classify intent into: REVENUE_NOW (buying/price), REVENUE_SOON (inquiry), NO_REVENUE (chat/spam).
 
 Return ONLY JSON:
 {
   "response": string,
   "intent": string,
-  "is_revenue_intent": boolean,
-  "revenue_classification": {
-    "type": "BUY_INTENT" | "INQUIRY" | "SUPPORT" | "OTHER",
+  "action": {
+    "type": "REPLY" | "ESCALATE" | "SCHEDULE_FOLLOWUP" | "IGNORE",
     "urgency": "LOW" | "MEDIUM" | "HIGH" | "URGENT",
-    "value_estimate": number,
-    "recommended_action": "RESPOND_IMMEDIATELY" | "ESCALATE_TO_OWNER" | "SCHEDULE_FOLLOWUP" | "IGNORE"
+    "revenue_weight": number,
+    "intent_classification": "REVENUE_NOW" | "REVENUE_SOON" | "NO_REVENUE" | "ESCALATION_REQUIRED"
   },
-  "proposed_commitments": [],
   "confidence": number
-}
+}`;
 
-CLASSIFICATION RULES:
-- Set is_revenue_intent=true if message relates to money, prices, or buying.
-- If urgency="URGENT" or type="BUY_INTENT", recommended_action should be "ESCALATE_TO_OWNER" or "RESPOND_IMMEDIATELY".`;
-
-  const baseUrl = config.provider === "groq" 
-    ? "https://api.groq.com/openai/v1" 
-    : "https://api.openai.com/v1";
-
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${config.apiKey}`,
+      Authorization: `Bearer ${process.env.LLM_API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: config.model ?? (config.provider === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini"),
+      model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: message },

@@ -1,93 +1,95 @@
 import type postgres from "postgres";
-import type { 
-  EmployabilityProfile, 
-  CustomerMemory, 
-  EmployabilityDecision, 
-  LlmOutput 
-} from "../../core/contracts/index.js";
+import type { LlmOutput, StaffAction } from "../../core/contracts/index.js";
 
 /**
  * services/employability-engine/index.ts
  *
- * Converts raw AI intelligence into "financially accountable employee" behavior.
- * Enforces business rules, tone consistency, and revenue gravity.
+ * The Single Behavioral Consequence Module.
+ * Ensures CHIOMA behaves like a financially accountable employee.
  */
 
-export async function processEmployability(
+export async function executeStaffDecision(
   sql: postgres.Sql,
   tenantId: string,
   customerPhone: string,
-  signal: LlmOutput
-): Promise<EmployabilityDecision> {
-  
-  // 1. Fetch Context (Profile + Memory)
-  const [profile] = await sql<EmployabilityProfile[]>`
-    SELECT tone_profile, response_aggressiveness, follow_up_policy, availability_mode, conversion_bias, owner_preference_memory
-    FROM employer_profiles WHERE tenant_id = ${tenantId}
-  `;
+  decision: LlmOutput
+): Promise<{ outcome: string }> {
+  const action = decision.action;
 
-  const [memory] = await sql<CustomerMemory[]>`
-    SELECT last_intent, unresolved_count, conversion_status, metadata
-    FROM customer_memory WHERE tenant_id = ${tenantId} AND customer_phone = ${customerPhone}
-  `;
-
-  // 2. Apply Rule 2: Revenue Gravity
-  let urgency = 1;
-  let shouldNotifyOwner = false;
-  let revenueWeight = signal.confidence * (signal.is_revenue_intent ? 1.5 : 1.0);
-
-  if (signal.is_revenue_intent) {
-    urgency = signal.revenue_classification?.urgency === "URGENT" ? 5 : 3;
-    if (urgency >= 4 || profile?.response_aggressiveness === "high") {
-      shouldNotifyOwner = true;
-    }
+  // 1. Persist Employee Attention (Revenue Signals)
+  if (action.intent_classification === "REVENUE_NOW" || action.intent_classification === "REVENUE_SOON") {
+    await sql`
+      INSERT INTO revenue_signals (tenant_id, correlation_id, intent, urgency, recommended_action, confidence)
+      VALUES (${tenantId}, 'TBD', ${decision.intent}, ${action.urgency}, ${action.type}, ${decision.confidence})
+      ON CONFLICT DO NOTHING
+    `;
   }
 
-  // 3. Apply Rule 4: Tone Lock
-  const tone = profile?.tone_profile || "friendly-shopkeeper";
+  // 2. Resolve Conversation State (BCL)
+  await updateConversationState(sql, tenantId, customerPhone, decision);
 
-  // 4. Decision Construction
-  const decision: EmployabilityDecision = {
-    response_type: signal.revenue_classification?.recommended_action === "ESCALATE_TO_OWNER" ? "escalate" : "reply",
-    tone,
-    urgency_level: urgency,
-    should_notify_owner: shouldNotifyOwner,
-    revenue_weight: revenueWeight,
-    next_action: signal.revenue_classification?.recommended_action || "RESPOND_IMMEDIATELY"
-  };
+  // 3. Execute Downstream Consequence
+  switch (action.type) {
+    case "ESCALATE":
+      await sql`
+        INSERT INTO escalation_signals (tenant_id, correlation_id, urgency, message_text)
+        VALUES (${tenantId}, 'TBD', ${action.urgency}, ${decision.response})
+      `;
+      return { outcome: "ESCALATED_TO_OWNER" };
 
-  // 5. Rule 1: Never Leave Idle (Update Memory)
-  await updateMemory(sql, tenantId, customerPhone, signal);
+    case "SCHEDULE_FOLLOWUP":
+      await sql`
+        INSERT INTO follow_up_queue (tenant_id, correlation_id, status)
+        VALUES (${tenantId}, 'TBD', 'PENDING')
+      `;
+      return { outcome: "FOLLOW_UP_SCHEDULED" };
 
-  // 6. Audit the Trace
-  await sql`
-    INSERT INTO employability_traces (tenant_id, correlation_id, decision_type, tone_applied, revenue_weight, urgency_level, next_action_logic)
-    VALUES (
-      ${tenantId}, 
-      'TBD', -- Correlation set by runtime
-      ${decision.response_type}, 
-      ${decision.tone}, 
-      ${decision.revenue_weight}, 
-      ${decision.urgency_level}, 
-      ${decision.next_action}
-    ) ON CONFLICT DO NOTHING
-  `;
-
-  return decision;
+    case "REPLY":
+    case "IGNORE":
+    default:
+      return { outcome: "REPLIED_AS_STAFF" };
+  }
 }
 
-async function updateMemory(
+async function updateConversationState(
   sql: postgres.Sql,
   tenantId: string,
   customerPhone: string,
-  signal: LlmOutput
+  decision: LlmOutput
 ) {
+  const now = new Date().toISOString();
   await sql`
-    INSERT INTO customer_memory (tenant_id, customer_phone, last_intent, unresolved_count)
-    VALUES (${tenantId}, ${customerPhone}, ${signal.intent}, 0)
+    INSERT INTO customer_memory (
+      tenant_id, 
+      customer_phone, 
+      last_intent, 
+      last_action, 
+      revenue_status,
+      interaction_sequence
+    )
+    VALUES (
+      ${tenantId}, 
+      ${customerPhone}, 
+      ${decision.intent}, 
+      ${decision.action.type}, 
+      ${decision.action.intent_classification === 'REVENUE_NOW' ? 'WARM' : 'COLD'},
+      ${sql.json([{ intent: decision.intent, action: decision.action.type, timestamp: now }])}
+    )
     ON CONFLICT (tenant_id, customer_phone) DO UPDATE SET
       last_intent = EXCLUDED.last_intent,
-      unresolved_count = customer_memory.unresolved_count + 1,
+      last_action = EXCLUDED.last_action,
+      revenue_status = CASE 
+        WHEN EXCLUDED.revenue_status = 'WARM' AND customer_memory.revenue_status = 'COLD' THEN 'WARM'
+        ELSE customer_memory.revenue_status 
+      END,
+      interaction_sequence = (
+        SELECT jsonb_agg(elem)
+        FROM (
+          SELECT elem FROM jsonb_array_elements(customer_memory.interaction_sequence || EXCLUDED.interaction_sequence) AS elem
+          ORDER BY (elem->>'timestamp') DESC
+          LIMIT 5
+        ) AS sub
+      ),
       updated_at = CURRENT_TIMESTAMP
   `;
 }

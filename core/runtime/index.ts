@@ -5,16 +5,19 @@ import {
   EmployabilityProfile
 } from "../contracts/index.js";
 import { processOnboardingStep } from "../../services/onboarding-engine/index.js";
-import { generateResponse } from "../../services/llm-orchestrator/index.js";
+import { generateStaffResponse } from "../../services/llm-orchestrator/index.js";
 import { commitEvent } from "../../infrastructure/database/index.js";
-import { routeAction } from "../../services/revenue-reflex-engine/index.js";
-import { processEmployability } from "../../services/employability-engine/index.js";
+import { executeStaffDecision } from "../../services/employability-engine/index.js";
 
 /**
  * core/runtime/index.ts
  *
- * The single execution brain of CHIOMA.
- * Incorporates the "Employability Layer" to ensure staff-like accountability.
+ * THE CONVERSATIONAL EMPLOYMENT LOOP.
+ * 1. Understand intent
+ * 2. Check employability state
+ * 3. Decide action
+ * 4. Respond like staff
+ * 5. Persist state
  */
 
 export async function runSyncPipeline(
@@ -25,7 +28,7 @@ export async function runSyncPipeline(
   const start = Date.now();
 
   try {
-    // 1. Onboarding Gate
+    // 1. Check Onboarding State (Chat-only onboarding contract)
     const onboarding = await processOnboardingStep(sql, input.tenantId, input.messageText);
     if (!onboarding.completed) {
       return {
@@ -37,49 +40,41 @@ export async function runSyncPipeline(
       };
     }
 
-    // 2. Employability Profile & Context Retrieval
+    // 2. Fetch Employee Profile (The single personalization source)
     const [profile] = await sql<EmployabilityProfile[]>`
-      SELECT tone_profile, response_aggressiveness, follow_up_policy, availability_mode, conversion_bias 
+      SELECT business_name, tone_profile, response_style, escalation_contact 
       FROM employer_profiles WHERE tenant_id = ${input.tenantId}
     `;
+
+    // 3. Context Retrieval (Knowledge & Memory)
+    const [state] = await sql`SELECT last_intent, current_goal FROM customer_memory WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}`;
     const facts = await sql`SELECT key, value FROM business_facts WHERE tenant_id = ${input.tenantId} LIMIT 20`;
-    const context = facts.map(f => `${f.key}: ${JSON.stringify(f.value)}`).join("\n");
+    const context = [
+      `Memory: Last goal was ${state?.current_goal || 'none'}`,
+      ...facts.map(f => `${f.key}: ${JSON.stringify(f.value)}`)
+    ].join("\n");
 
-    // 3. AI Response Generation (Tone-Locked)
-    const aiOutput = await generateResponse(input.messageText, context, { 
-      ...config, 
-      tone: profile?.tone_profile 
-    });
+    // 4. Staff Response Generation
+    const staffOutput = await generateStaffResponse(input.messageText, context, profile || { business_name: "The Shop" });
 
-    // 4. Employability Decision Engine (Mandatory Behavioral Rules)
-    const decision = await processEmployability(sql, input.tenantId, input.senderPhone, aiOutput);
+    // 5. Execute Behavioral Consequence (Action & State Transition)
+    const outcome = await executeStaffDecision(sql, input.tenantId, input.senderPhone, staffOutput);
 
-    // 5. Persistence & Revenue Trace
+    // 6. Persistence (Audit Trace)
     await commitEvent(sql, {
       id: `evt_${Date.now()}`,
-      type: "RESPONSE_SENT",
+      type: "STAFF_ACTION_TAKEN",
       payload: { 
-        text: aiOutput.response, 
-        intent: aiOutput.intent,
-        is_revenue: aiOutput.is_revenue_intent,
-        employability: decision
+        text: staffOutput.response, 
+        action: staffOutput.action,
+        outcome: outcome.outcome
       },
       tenantId: input.tenantId,
       correlationId: input.correlationId,
     });
 
-    // 6. Action Reflex Loop
-    if (aiOutput.is_revenue_intent || decision.response_type === "escalate") {
-      await sql`
-        INSERT INTO revenue_signals (tenant_id, correlation_id, intent, confidence, message_text, urgency, recommended_action)
-        VALUES (${input.tenantId}, ${input.correlationId}, ${aiOutput.intent}, ${aiOutput.confidence}, ${input.messageText}, ${decision.urgency_level}, ${decision.next_action})
-        ON CONFLICT (correlation_id) DO NOTHING
-      `;
-      await routeAction(sql, input.tenantId, input.correlationId, aiOutput);
-    }
-
     return {
-      responseText: aiOutput.response,
+      responseText: staffOutput.response,
       responseType: "conversation",
       delivered: false,
       latencyMs: Date.now() - start,
@@ -87,9 +82,9 @@ export async function runSyncPipeline(
     };
 
   } catch (err) {
-    console.error("PIPELINE_CRASH", err);
+    console.error("STAFF_LOOP_CRASH", err);
     return {
-      responseText: "System error. Please try again shortly.",
+      responseText: "Sorry, I'm having a bit of trouble. Let me check that for you.",
       responseType: "error_degraded",
       delivered: false,
       latencyMs: Date.now() - start,

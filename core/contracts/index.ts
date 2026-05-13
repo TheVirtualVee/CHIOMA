@@ -1,3 +1,10 @@
+/**
+ * core/contracts/index.ts
+ *
+ * CHIOMA — The Single Employability Contract.
+ * Collapses all architectural complexity into a single behavioral staff model.
+ */
+
 export interface SyncPipelineInput {
   tenantId: string;
   senderPhone: string;
@@ -15,41 +22,36 @@ export interface SyncPipelineResult {
   correlationId: string;
 }
 
+/**
+ * The only personalization source allowed for the Digital Employee.
+ */
+export interface EmployabilityProfile {
+  business_name: string;
+  tone_profile: "casual" | "formal" | "street-smart" | "luxury" | "friendly-shopkeeper";
+  escalation_contact: string;
+  working_hours: string;
+  revenue_goals?: string;
+  response_style: "concise" | "helpful" | "sales-driven";
+}
+
+export type EmployabilityMode = 
+  | "ACTIVE_EMPLOYEE" 
+  | "ONBOARDING_EMPLOYEE" 
+  | "OFFLINE_ESCALATION_ONLY";
+
+/**
+ * The deterministic staff action resulting from an interaction.
+ */
+export interface StaffAction {
+  type: "REPLY" | "ESCALATE" | "SCHEDULE_FOLLOWUP" | "IGNORE";
+  urgency: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  revenue_weight: number; // 0.0 to 1.0
+  intent_classification: "REVENUE_NOW" | "REVENUE_SOON" | "NO_REVENUE" | "ESCALATION_REQUIRED";
+}
+
 export interface LlmOutput {
   response: string;
   intent: string;
-  is_revenue_intent: boolean;
-  revenue_classification?: {
-    type: "BUY_INTENT" | "INQUIRY" | "SUPPORT" | "OTHER";
-    urgency: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
-    value_estimate?: number;
-    recommended_action: "RESPOND_IMMEDIATELY" | "ESCALATE_TO_OWNER" | "SCHEDULE_FOLLOWUP" | "IGNORE";
-  };
-  proposed_commitments: any[];
+  action: StaffAction;
   confidence: number;
-}
-
-export interface EmployabilityProfile {
-  tone_profile: "casual" | "formal" | "street-smart" | "luxury" | "friendly-shopkeeper";
-  response_aggressiveness: "low" | "medium" | "high";
-  follow_up_policy: "disabled" | "soft" | "aggressive";
-  availability_mode: "always-on" | "business-hours-aware" | "owner-away-priority";
-  conversion_bias: "low" | "medium" | "high";
-  owner_preference_memory: Record<string, any>;
-}
-
-export interface CustomerMemory {
-  last_intent?: string;
-  unresolved_count: number;
-  conversion_status: "PROSPECT" | "CUSTOMER" | "LOST";
-  metadata: Record<string, any>;
-}
-
-export interface EmployabilityDecision {
-  response_type: "reply" | "escalate" | "follow_up" | "hold";
-  tone: string;
-  urgency_level: number;
-  should_notify_owner: boolean;
-  revenue_weight: number;
-  next_action: string;
 }
