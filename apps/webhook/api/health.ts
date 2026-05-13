@@ -1,5 +1,3 @@
-import postgres from "postgres";
-
 /**
  * api/health.ts — Institutional Health Check
  * Returns deployment state, DB connectivity, and runtime version.
@@ -10,6 +8,7 @@ export default async function handler(_req: any, res: any) {
   
   if (DATABASE_URL) {
     try {
+      const { default: postgres } = await import("postgres");
       const sql = postgres(DATABASE_URL, { max: 1, ssl: "require", connect_timeout: 5 });
       await sql`SELECT 1`;
       dbStatus = "connected";
