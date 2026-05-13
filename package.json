@@ -19,7 +19,10 @@
     "init:chioma": "tsx cli/chioma-init/src/main.ts",
     "db:push": "supabase db push --db-url \"$DATABASE_URL\"",
     "db:pull": "supabase db pull --db-url \"$DATABASE_URL\"",
-    "db:reset": "supabase db reset --db-url \"$DATABASE_URL\""
+    "db:reset": "supabase db reset --db-url \"$DATABASE_URL\"",
+    "deploy:check": "node scripts/deploy-check.mjs",
+    "deploy:webhook": "cd apps/webhook && vercel deploy --prod",
+    "build:worker": "cd apps/worker && npm run build"
   },
   "dependencies": {
     "@chioma/business-synthesis-engine": "*",

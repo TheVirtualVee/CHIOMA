@@ -2,4 +2,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 .env
-.env.*
+.env.local
+.env.production
+.env.staging
+# .env.example is intentionally tracked
