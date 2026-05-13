@@ -21,6 +21,9 @@ import { registerIntentService } from "@chioma/intent-service";
 import { registerLlmOrchestrator } from "@chioma/llm-orchestrator";
 import { registerMemoryStore } from "@chioma/memory-store";
 import { registerReliabilityEngine } from "@chioma/reliability-engine";
+import { registerOnboardingEngine } from "@chioma/onboarding-engine";
+import { registerOfflineProtection } from "@chioma/offline-protection";
+import { registerIntelligenceService } from "@chioma/operational-intelligence";
 import { startCommitmentRecoveryWorker } from "@chioma/worker-commitment-recovery";
 import { startEscalationLoopWorker } from "@chioma/worker-escalation-loop";
 import { startMemoryCompactionWorker } from "@chioma/worker-memory-compaction";
@@ -87,6 +90,9 @@ async function boot(): Promise<void> {
   registerReliabilityEngine(bus);
   registerDeliveryService(bus);
   registerEscalationService(bus);
+  registerOnboardingEngine(bus, sql);
+  registerOfflineProtection(bus, sql);
+  registerIntelligenceService(bus, sql);
   logger.info("SERVICE_HANDLERS_REGISTERED");
 
   const supabaseLog = createSupabaseEventLog(sql);

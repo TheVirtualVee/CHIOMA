@@ -54,11 +54,38 @@ CREATE TABLE IF NOT EXISTS dead_letter_queue (
 
 CREATE INDEX IF NOT EXISTS idx_dlq_tenant_id ON dead_letter_queue(tenant_id);
 
+-- 5. Employer Profiles (Operational Intelligence)
+CREATE TABLE IF NOT EXISTS employer_profiles (
+    tenant_id TEXT PRIMARY KEY,
+    business_name TEXT,
+    category TEXT,
+    working_hours TEXT,
+    delivery_capability BOOLEAN DEFAULT FALSE,
+    escalation_contact TEXT,
+    onboarding_status TEXT DEFAULT 'PENDING', -- PENDING, STARTED, COMPLETED
+    current_onboarding_step TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 6. Operational Memory (Behavioral Intelligence)
+CREATE TABLE IF NOT EXISTS operational_memory (
+    tenant_id TEXT PRIMARY KEY,
+    tone_profile JSONB NOT NULL DEFAULT '{}',
+    high_value_items JSONB NOT NULL DEFAULT '[]',
+    preferred_languages JSONB NOT NULL DEFAULT '["English"]',
+    urgency_rules JSONB NOT NULL DEFAULT '{}',
+    away_mode_enabled BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Enable RLS (Row Level Security) for Tenant Isolation
 ALTER TABLE events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projections_applied ENABLE ROW LEVEL SECURITY;
 ALTER TABLE commitments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dead_letter_queue ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employer_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE operational_memory ENABLE ROW LEVEL SECURITY;
 
 -- Rule: Policies should be created during bootstrap based on tenant authentication.
 -- For now, we enforce tenant_id in all queries at the application layer as well.
