@@ -1,4 +1,4 @@
-import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient, commitEvent } from "../../../infrastructure/database/index.js";
 import { runSyncPipeline } from "../../../core/runtime/index.js";
@@ -23,20 +23,32 @@ export default async function handler(req: any, res: any) {
   const messageId = `sim_${Date.now()}`;
   const eventId = randomUUID();
   const correlationId = `corr_${messageId}`;
+  // causationId for a simulation's first event is null — it has no prior cause
+  const causationId = `root_${eventId}`;
 
   const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
   try {
+    // SIDE EFFECT: Supabase event commit — inbound simulation event
     await commitEvent(sql, {
       id: eventId,
       type: "MESSAGE_RECEIVED",
       payload: { channel: "simulation", from, text: text.trim(), waMessageId: messageId, simulated: true },
       tenantId: normalisedTenantId,
-      correlationId
+      correlationId,
+      causationId,
     });
 
     const result = await runSyncPipeline(
-      { tenantId: normalisedTenantId, senderPhone: from, messageText: text.trim(), correlationId, eventId, channel: "simulation" },
+      {
+        tenantId: normalisedTenantId,
+        senderPhone: from,
+        messageText: text.trim(),
+        correlationId,
+        causationId,
+        eventId,
+        channel: "simulation",
+      },
       sql,
       { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
     );
@@ -46,7 +58,7 @@ export default async function handler(req: any, res: any) {
       correlationId,
       response: result.responseText,
       responseType: result.responseType,
-      latencyMs: Date.now() - start
+      latencyMs: Date.now() - start,
     });
 
   } catch (err) {

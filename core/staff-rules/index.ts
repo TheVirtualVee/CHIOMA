@@ -36,8 +36,19 @@ export function validateStaffAction(
     }
   }
 
-  // 3. Pricing & Fact Guard (Enforce deterministic facts)
-  // Verification logic should be added here to prevent LLM hallucination of prices.
+  // 3. Revenue Protection — IGNORE is never valid for paying customers
+  // ASSERT: if a customer signals revenue intent, they must receive a reply.
+  // Counterexample: LLM proposes IGNORE for "I want to buy now" → lost sale.
+  if (
+    validatedAction.type === "IGNORE" &&
+    (validatedAction.need_classification === "REVENUE_NOW" ||
+      validatedAction.need_classification === "REVENUE_SOON")
+  ) {
+    validatedAction = { ...validatedAction, type: "REPLY" };
+  }
+
+  // 4. Escalation without contact — fallback to REPLY (already handled above for ESCALATE)
+  // covered in rule 2.
 
   return validatedAction;
 }

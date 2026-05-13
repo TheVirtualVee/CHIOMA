@@ -18,8 +18,9 @@
     "db:reset": "supabase db reset --db-url \"$DATABASE_URL\"",
     "deploy:check": "node scripts/deploy-check.mjs",
     "overseer:check": "node scripts/overseer.mjs",
-    "build:webhook": "npm run build --workspace=@chioma/webhook",
-    "deploy:webhook": "cd apps/webhook && vercel deploy --prod"
+    "build:webhook": "tsc --noEmit --project tsconfig.json",
+    "deploy:webhook": "cd apps/webhook && vercel deploy --prod",
+    "vercel:typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {
     "@chioma/core": "*",
