@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type postgres from "postgres";
 import { 
   SyncPipelineInput, 
@@ -62,7 +63,7 @@ export async function runSyncPipeline(
 
     // 6. Persistence (Audit Trace)
     await commitEvent(sql, {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       type: "STAFF_ACTION_TAKEN",
       payload: { 
         text: staffOutput.response, 

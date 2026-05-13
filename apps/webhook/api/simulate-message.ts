@@ -1,3 +1,4 @@
+import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
 import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient, commitEvent } from "../../../infrastructure/database/index.js";
 import { runSyncPipeline } from "../../../core/runtime/index.js";
@@ -20,7 +21,7 @@ export default async function handler(req: any, res: any) {
 
   const normalisedTenantId = tenantId.startsWith("tenant_") ? tenantId : `tenant_${tenantId}`;
   const messageId = `sim_${Date.now()}`;
-  const eventId = crypto.randomUUID();
+  const eventId = randomUUID();
   const correlationId = `corr_${messageId}`;
 
   const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });

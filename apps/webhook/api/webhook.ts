@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
 import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient, commitEvent } from "../../../infrastructure/database/index.js";
 import { runSyncPipeline } from "../../../core/runtime/index.js";
@@ -60,7 +60,7 @@ export default async function handler(req: any, res: any) {
       const [existing] = await sql`SELECT message_id FROM processed_messages WHERE message_id = ${messageId}`;
       if (existing) return res.status(200).send("OK");
 
-      const eventId = crypto.randomUUID();
+      const eventId = randomUUID();
       await sql.begin(async (tx: any) => {
         await tx`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
         await commitEvent(tx, {
