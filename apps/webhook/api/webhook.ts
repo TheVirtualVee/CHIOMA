@@ -1,27 +1,12 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { createEvent, EVENT_TYPES } from "@chioma/core";
+import { 
+  createSupabaseEventLog, 
+  createConsoleLogger, 
+  createDatabaseClient 
+} from "@chioma/infrastructure";
 
-/** 
- * INLINED INFRASTRUCTURE (Bypassing Workspace Resolution for Ingress Stability) 
- */
-
-const logger = {
-  info: (msg: string, ctx?: any) => console.log(JSON.stringify({ severity: "INFO", message: msg, ...ctx })),
-  warn: (msg: string, ctx?: any) => console.log(JSON.stringify({ severity: "WARN", message: msg, ...ctx })),
-  error: (msg: string, ctx?: any) => console.log(JSON.stringify({ severity: "ERROR", message: msg, ...ctx })),
-};
-
-function createEvent(type: string, payload: any, tenantId: string) {
-  return {
-    id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    type,
-    payload,
-    tenantId,
-    correlationId: `corr_${Date.now()}`,
-    createdAt: new Date().toISOString(),
-    version: "1.1",
-    metadata: {},
-  };
-}
+const logger = createConsoleLogger("webhook-handler");
 
 function validateSignature(rawBody: string, signature: string | null, secret: string): boolean {
   if (!signature?.startsWith("sha256=")) return false;
@@ -52,9 +37,6 @@ function resolveTenantId(body: any): string {
   return phoneId ? `tenant_${phoneId}` : "tenant_default";
 }
 
-/** 
- * WEBOOK HANDLER (Hardened Ingress)
- */
 export default async function handler(req: any, res: any) {
   try {
     const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
@@ -97,23 +79,21 @@ export default async function handler(req: any, res: any) {
       
       if (message) {
         const tenantId = resolveTenantId(body);
-        const event = createEvent("MESSAGE_RECEIVED", {
-          channel: "whatsapp",
-          from: message.from,
-          text: message.text,
-          waMessageId: message.waMessageId,
-        }, tenantId);
+        const event = createEvent(
+          EVENT_TYPES.MESSAGE_RECEIVED,
+          {
+            channel: "whatsapp",
+            from: message.from,
+            text: message.text,
+            waMessageId: message.waMessageId,
+          },
+          tenantId,
+        );
 
-        // Dynamic import of postgres to avoid top-level resolution issues in some runtimes
-        const { default: postgres } = await import("postgres");
-        const sql = postgres(DATABASE_URL, { max: 1, ssl: "require" });
-        
+        const sql = await createDatabaseClient(DATABASE_URL, { max: 1 });
         try {
-          // Direct SQL insert for maximum stability during isolation
-          await sql`
-            INSERT INTO core.events (id, type, payload, tenant_id, correlation_id, created_at, version, metadata)
-            VALUES (${event.id}, ${event.type}, ${sql.json(event.payload)}, ${event.tenantId}, ${event.correlationId}, ${event.createdAt}, ${event.version}, ${sql.json(event.metadata)})
-          `;
+          const log = createSupabaseEventLog(sql);
+          await log.append(event);
 
           logger.info("MESSAGE_RECEIVED_COMMITTED", {
             eventId: event.id,
