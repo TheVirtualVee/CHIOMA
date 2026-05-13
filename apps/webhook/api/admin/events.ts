@@ -17,30 +17,23 @@ const logger = createConsoleLogger("admin-events");
 const ADMIN_SECRET = process.env.CHIOMA_ADMIN_SECRET;
 const DATABASE_URL = process.env.DATABASE_URL;
 
-export default async function handler(req: Request): Promise<Response> {
+export default async function handler(req: any, res: any) {
   // ASSERT: admin secret must match — this is internal tooling only
-  const authHeader = req.headers.get("x-admin-secret");
+  const authHeader = req.headers["x-admin-secret"];
   if (!ADMIN_SECRET || authHeader !== ADMIN_SECRET) {
     logger.warn("ADMIN_UNAUTHORIZED", { path: "/admin/events" });
-    return new Response("Unauthorized", { status: 401 });
+    return res.status(401).send("Unauthorized");
   }
 
   if (!DATABASE_URL) {
-    return new Response(JSON.stringify({ error: "DATABASE_URL not configured" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return res.status(500).json({ error: "DATABASE_URL not configured" });
   }
 
-  const url = new URL(req.url);
-  const tenantId = url.searchParams.get("tenantId");
-  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50", 10), 200);
+  const tenantId = req.query.tenantId;
+  const limit = Math.min(parseInt(req.query.limit ?? "50", 10), 200);
 
   if (!tenantId) {
-    return new Response(JSON.stringify({ error: "tenantId query param required" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return res.status(400).json({ error: "tenantId query param required" });
   }
 
   // ASSERT: tenant isolation enforced — only requested tenant's events returned
@@ -50,10 +43,7 @@ export default async function handler(req: Request): Promise<Response> {
     const events = await log.getHistory(tenantId);
     const sliced = events.slice(-limit);
 
-    return new Response(
-      JSON.stringify({ tenantId, count: sliced.length, events: sliced }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+    return res.status(200).json({ tenantId, count: sliced.length, events: sliced });
   } finally {
     await sql.end();
   }
