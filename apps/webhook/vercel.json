@@ -1,6 +1,7 @@
 {
   "version": 2,
-  "buildCommand": "npm run build",
+  "installCommand": "cd ../.. && npm install",
+  "buildCommand": "cd ../.. && npm run build --workspace=@chioma/webhook",
   "outputDirectory": ".vercel/output",
   "functions": {
     "api/webhook.ts": {
