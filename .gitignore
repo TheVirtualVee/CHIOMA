@@ -6,3 +6,4 @@ dist/
 .env.production
 .env.staging
 # .env.example is intentionally tracked
+.vercel/
