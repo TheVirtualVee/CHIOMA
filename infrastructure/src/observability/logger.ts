@@ -15,7 +15,7 @@ export function createConsoleLogger(service: string): ChiomaLogger {
       ...context,
     };
     // side-effect: stdout JSON emission
-    process.stdout.write(JSON.stringify(entry) + "\n");
+    console.log(JSON.stringify(entry));
   };
 
   return {
