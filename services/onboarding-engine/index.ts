@@ -1,17 +1,18 @@
 import type postgres from "postgres";
+import { generateBusinessDraft, formatDraftForOwner } from "../business-understanding-engine/index.js";
 
 /**
  * services/onboarding-engine/index.ts
  *
- * The 90-Second Chat-Only Onboarding Contract.
- * Ensures the digital employee is hired and ready in < 4 questions.
+ * The Employability Lock-In Onboarding.
+ * 1. Collect Links -> 2. Generate Draft -> 3. Validate Loop -> 4. Lock Profile.
  */
 
 const ONBOARDING_STEPS = [
-  { key: "business_name", question: "Hello! I'm CHIOMA, your new digital staff. What is the name of your business?" },
-  { key: "products", question: "Nice to meet you! What exactly do you sell or provide?" },
-  { key: "working_hours", question: "Got it. What are your business hours? (e.g., 8am-6pm Mon-Sat)" },
-  { key: "escalation_contact", question: "Last thing: If a customer has an urgent request, what phone number should I notify?" }
+  { key: "business_name", question: "Hello! I'm CHIOMA. What is the name of your business?" },
+  { key: "social_links", question: "Nice! Please send me links to your Instagram, TikTok, or Website so I can learn about your products." },
+  { key: "validate_draft", question: "GENERATED_DYNAMICALLY" },
+  { key: "escalation_contact", question: "Almost done. If a customer has an urgent request, what phone number should I notify?" }
 ];
 
 export async function processOnboardingStep(
@@ -48,6 +49,26 @@ export async function processOnboardingStep(
     ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value
   `;
 
+  // SPECIAL LOGIC: Link Ingestion -> Draft Generation
+  if (currentStep.key === "social_links") {
+    // In a real system, we'd fetch the links here. For MVP, we simulate with a dummy text.
+    const draft = await generateBusinessDraft([`Simulated content from: ${messageText}`]);
+    const validationMessage = formatDraftForOwner(draft);
+    
+    await sql`
+      UPDATE employer_profiles 
+      SET current_onboarding_step = 'validate_draft'
+      WHERE tenant_id = ${tenantId}
+    `;
+    return { completed: false, response: validationMessage };
+  }
+
+  // SPECIAL LOGIC: Validation Confirmation
+  if (currentStep.key === "validate_draft") {
+    // If they said something like "yes" or "correct", proceed.
+    // If they corrected it, we would update the facts here.
+  }
+
   // Advance to next step
   const nextStep = ONBOARDING_STEPS[currentIndex + 1];
   if (nextStep) {
@@ -72,6 +93,6 @@ export async function processOnboardingStep(
 
   return { 
     completed: true, 
-    response: "Perfect! I'm now ready to handle your customers. I'll stay active on this line and notify you if anything urgent comes up. 👍" 
+    response: "Perfect! I've locked in your business profile. I'm now ready to manage your customers like a pro. 👍" 
   };
 }

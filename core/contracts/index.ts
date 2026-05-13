@@ -49,6 +49,19 @@ export interface StaffAction {
   intent_classification: "REVENUE_NOW" | "REVENUE_SOON" | "NO_REVENUE" | "ESCALATION_REQUIRED";
 }
 
+/**
+ * The inferred knowledge from social links before owner validation.
+ */
+export interface BusinessDraft {
+  name_guess: string;
+  products_guess: string[];
+  pricing_guess?: string;
+  tone_guess: string;
+  location_guess?: string;
+  working_pattern_guess?: string;
+  confidence_scores: Record<string, number>;
+}
+
 export interface LlmOutput {
   response: string;
   intent: string;

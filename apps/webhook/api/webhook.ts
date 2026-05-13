@@ -72,6 +72,22 @@ export default async function handler(req: any, res: any) {
         { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
       );
 
+      // --- META RESPONSE STEP ---
+      // Send the reply back to the customer via Graph API
+      if (result.responseText) {
+        const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
+        const phoneNumberId = body.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
+        
+        if (phoneNumberId) {
+          await sendWhatsAppMessage(
+            phoneNumberId,
+            config.WHATSAPP_ACCESS_TOKEN,
+            message.from,
+            result.responseText
+          );
+        }
+      }
+
       console.log("EXECUTION_COMPLETE", { messageId, tenantId, latency: Date.now() - start, type: result.responseType });
       return res.status(200).send("OK");
 

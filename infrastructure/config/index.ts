@@ -11,9 +11,9 @@ const ConfigSchema = z.object({
   DATABASE_URL: z.string().startsWith("postgres"),
   LLM_API_KEY: z.string().min(1),
   LLM_PROVIDER: z.enum(["openai", "groq", "openrouter"]).default("openai"),
-  WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  WHATSAPP_VERIFY_TOKEN: z.string().min(1),
+  WHATSAPP_ACCESS_TOKEN: z.string().min(1),
   WHATSAPP_APP_SECRET: z.string().optional(),
-  WHATSAPP_ACCESS_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
 });
 
