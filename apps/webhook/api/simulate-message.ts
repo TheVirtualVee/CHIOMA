@@ -50,7 +50,7 @@ export default async function handler(req: any, res: any) {
 
   } catch (err) {
     console.error("SIMULATE_CRASH", err);
-    return res.status(500).json({ ok: false, error: "Simulation failed" });
+    return res.status(500).json({ ok: false, error: String(err) });
   } finally {
     await sql.end();
   }
