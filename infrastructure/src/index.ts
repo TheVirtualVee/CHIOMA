@@ -10,3 +10,5 @@ export * from "./observability/safe-handler.js";
 export * from "./database/supabase-store.js";
 export * from "./event-bus/authority-bus.js";
 export * from "./event-bus/consumer-worker.js";
+export * from "./ai/llm.js";
+export * from "./bootstrap/lifecycle.js";

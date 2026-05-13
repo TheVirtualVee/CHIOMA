@@ -1,19 +1,4 @@
-/**
- * infrastructure/src/ai/llm.ts
- *
- * INTENT: Provide a bounded, advisory LLM provider abstraction.
- * LLM is NEVER authoritative. It produces proposals only.
- * All calls are timeout-gated, retry-safe, and structured-output-validated.
- *
- * Supported providers: OpenAI, Anthropic, OpenRouter, Groq
- * Provider selected via LLM_PROVIDER env var.
- *
- * Invariants:
- * - Every call has an AbortController timeout (LLM_TIMEOUT_MS, default 15s)
- * - Retries: up to LLM_MAX_RETRIES (default 2) on 5xx / timeout
- * - Structured output is validated before returning to caller
- * - No provider has authority to mutate state
- */
+import { z } from "zod";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_RETRIES = 2;
@@ -48,7 +33,6 @@ async function fetchWithTimeout(
   timeoutMs: number,
 ): Promise<Response> {
   const controller = new AbortController();
-  // ASSERT: timeout enforced — a hung LLM must not block the execution chain
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: controller.signal });
@@ -130,6 +114,12 @@ export class OpenAIProvider implements LlmProvider {
         usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
       };
 
+      // constraint: LLM output never trusted — validate structure
+      z.object({
+        choices: z.array(z.object({ message: z.object({ content: z.string() }) })),
+        usage: z.object({ prompt_tokens: z.number(), completion_tokens: z.number(), total_tokens: z.number() }),
+      }).parse(data);
+
       return {
         content: data.choices[0].message.content,
         usage: {
@@ -148,7 +138,7 @@ export class OpenAIProvider implements LlmProvider {
 export class GroqProvider extends OpenAIProvider {
   constructor(
     apiKey: string,
-    model: string = "llama-3.1-8b-instant",
+    model: string = "llama-3.3-70b-versatile",
     opts?: { timeoutMs?: number; maxRetries?: number },
   ) {
     super(apiKey, model, "https://api.groq.com/openai/v1", opts);
@@ -230,27 +220,26 @@ export class AnthropicProvider implements LlmProvider {
 // ─── Factory — resolves provider from env ────────────────────────────────
 
 /**
- * Creates the LLM provider from environment variables.
- * LLM_PROVIDER: "openai" | "anthropic" | "groq" | "openrouter"
- * LLM_API_KEY: required
- * LLM_MODEL: optional, provider-specific default used if absent
- *
- * SIDE EFFECT: reads process.env. Why necessary: single wiring point for all callers.
+ * contract: LlmFactory
+ * side-effect: reads process.env.
  */
 export function createLlmProviderFromEnv(): LlmProvider {
   const provider = process.env.LLM_PROVIDER ?? "openai";
-  const apiKey = process.env.LLM_API_KEY;
+  const apiKey = process.env.LLM_API_KEY || (provider === "groq" ? process.env.GROQ_API_KEY : undefined);
   const model = process.env.LLM_MODEL;
   const timeoutMs = parseInt(process.env.LLM_TIMEOUT_MS ?? String(DEFAULT_TIMEOUT_MS), 10);
   const maxRetries = parseInt(process.env.LLM_MAX_RETRIES ?? String(DEFAULT_MAX_RETRIES), 10);
 
   // ASSERT: API key must be present
-  if (!apiKey) throw new Error("BOOT_FAILURE: LLM_API_KEY not set");
+  if (!apiKey) {
+    const keyName = provider === "groq" ? "GROQ_API_KEY (or LLM_API_KEY)" : "LLM_API_KEY";
+    throw new Error(`BOOT_FAILURE: ${keyName} not set`);
+  }
 
   const opts = { timeoutMs, maxRetries };
 
   switch (provider) {
-    case "groq":       return new GroqProvider(apiKey, model ?? "llama-3.1-8b-instant", opts);
+    case "groq":       return new GroqProvider(apiKey, model ?? "llama-3.3-70b-versatile", opts);
     case "openrouter": return new OpenRouterProvider(apiKey, model ?? "mistralai/mistral-7b-instruct", opts);
     case "anthropic":  return new AnthropicProvider(apiKey, model ?? "claude-3-haiku-20240307", opts);
     case "openai":

@@ -1,20 +1,3 @@
-/**
- * apps/worker/src/main.ts — Render Worker Runtime Entrypoint
- *
- * INTENT: Boot the CHIOMA consumer worker runtime deterministically.
- * Validates schema, ECB, and env before accepting any events.
- * Runs long-lived polling loop. Gracefully shuts down on SIGTERM/SIGINT.
- *
- * Boot sequence:
- *   1. Validate required env
- *   2. Validate Supabase schema integrity (hard gate)
- *   3. Validate active ECB exists
- *   4. Register all service handlers on in-memory bus
- *   5. Start EventConsumerWorker (polls Supabase, dispatches to bus)
- *   6. Start background workers (escalation, recovery, compaction)
- *   7. Signal ready
- */
-
 import { config } from "dotenv";
 config();
 
@@ -26,6 +9,7 @@ import {
   createSupabaseConsumerStore,
   EventConsumerWorker,
   createConsoleLogger,
+  metrics,
   lifecycle,
 } from "@chioma/infrastructure";
 import { registerCommitmentEngine } from "@chioma/commitment-engine";
@@ -56,8 +40,16 @@ const REQUIRED_ENV = [
 async function boot(): Promise<void> {
   logger.info("WORKER_BOOT_START", { pid: process.pid });
 
-  // PHASE 1: env gate — fail fast before any I/O
-  const envResult = validateRequiredEnv(REQUIRED_ENV);
+  const provider = process.env.LLM_PROVIDER ?? "openai";
+  const required = [...REQUIRED_ENV];
+  
+  if (provider === "groq" && !process.env.LLM_API_KEY && process.env.GROQ_API_KEY) {
+    required.splice(required.indexOf("LLM_API_KEY"), 1);
+  } else if (provider === "groq" && !process.env.LLM_API_KEY) {
+    required[required.indexOf("LLM_API_KEY")] = "GROQ_API_KEY";
+  }
+
+  const envResult = validateRequiredEnv(required);
   if (!envResult.valid) {
     logger.error("BOOT_FAILURE_ENV", { missing: envResult.missing });
     process.exit(1);
@@ -68,7 +60,6 @@ async function boot(): Promise<void> {
   const CONSUMER_GROUP = process.env.CONSUMER_GROUP ?? "chioma_core";
   const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS ?? "1000", 10);
 
-  // PHASE 2: schema integrity gate — hard fail if DB not ready
   logger.info("SCHEMA_VALIDATION_START");
   const schemaResult = await validateSchemaIntegrity(DATABASE_URL);
   if (!schemaResult.valid) {
@@ -77,13 +68,10 @@ async function boot(): Promise<void> {
   }
   logger.info("SCHEMA_VALIDATION_PASSED", { tables: schemaResult.tables });
 
-  // PHASE 3: wire event infrastructure
-  // In-memory bus for local dispatch within this worker process
   const localLog = createAppendOnlyLog();
   const projectionStore = createSupabaseProjectionStore(DATABASE_URL);
   const bus = createAuthorityBus(localLog, undefined, projectionStore);
 
-  // PHASE 4: register all service handlers on local bus
   registerMemoryStore(bus);
   registerIntentService(bus);
   registerContextCompiler(bus);
@@ -94,7 +82,6 @@ async function boot(): Promise<void> {
   registerEscalationService(bus);
   logger.info("SERVICE_HANDLERS_REGISTERED");
 
-  // PHASE 5: start consumer worker — polls Supabase, dispatches to local bus
   const supabaseLog = createSupabaseEventLog(DATABASE_URL);
   const consumerStore = createSupabaseConsumerStore(DATABASE_URL);
 
@@ -106,20 +93,18 @@ async function boot(): Promise<void> {
       CONSUMER_GROUP,
       [tenantId],
       POLL_INTERVAL_MS,
-      30, // lease duration seconds
+      30, 
     );
     worker.start();
     logger.info("CONSUMER_WORKER_STARTED", { tenantId, consumerGroup: CONSUMER_GROUP });
     return worker;
   });
 
-  // PHASE 6: start background workers
   const stopRecovery = startCommitmentRecoveryWorker();
   const stopEscalation = startEscalationLoopWorker();
   const stopCompaction = startMemoryCompactionWorker();
   logger.info("BACKGROUND_WORKERS_STARTED");
 
-  // PHASE 7: register graceful shutdown
   lifecycle.onShutdown(async () => {
     logger.info("GRACEFUL_SHUTDOWN_START");
     workers.forEach(w => w.stop());
@@ -130,10 +115,22 @@ async function boot(): Promise<void> {
   });
 
   lifecycle.setReady();
+  const bootCorrelationId = `boot_${Date.now().toString(36)}`;
+  // ASSERT: causationId is null for root boot events
+  metrics.emit("worker_boot_complete", { 
+    bootCorrelationId, 
+    tenants: TENANT_IDS, 
+    causationId: null,
+    tenantId: "system",
+    service: "worker-runtime"
+  });
+
   logger.info("WORKER_BOOT_COMPLETE", {
     tenants: TENANT_IDS,
     consumerGroup: CONSUMER_GROUP,
     pollIntervalMs: POLL_INTERVAL_MS,
+    correlationId: bootCorrelationId,
+    causationId: null,
   });
 }
 
