@@ -10,7 +10,7 @@
       "memory": 256
     },
     "api/health.ts": {
-      "runtime": "nodejs20.x",
+      "runtime": "edge",
       "maxDuration": 5,
       "memory": 128
     },
