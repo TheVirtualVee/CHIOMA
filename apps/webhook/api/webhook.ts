@@ -60,7 +60,7 @@ export default async function handler(req: any, res: any) {
       const [existing] = await sql`SELECT message_id FROM processed_messages WHERE message_id = ${messageId}`;
       if (existing) return res.status(200).send("OK");
 
-      const eventId = `evt_${Date.now()}`;
+      const eventId = crypto.randomUUID();
       await sql.begin(async (tx: any) => {
         await tx`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
         await commitEvent(tx, {

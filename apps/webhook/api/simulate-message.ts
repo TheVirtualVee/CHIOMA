@@ -20,7 +20,7 @@ export default async function handler(req: any, res: any) {
 
   const normalisedTenantId = tenantId.startsWith("tenant_") ? tenantId : `tenant_${tenantId}`;
   const messageId = `sim_${Date.now()}`;
-  const eventId = `evt_${Date.now()}`;
+  const eventId = crypto.randomUUID();
   const correlationId = `corr_${messageId}`;
 
   const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });

@@ -62,7 +62,7 @@ export async function runSyncPipeline(
 
     // 6. Persistence (Audit Trace)
     await commitEvent(sql, {
-      id: `evt_${Date.now()}`,
+      id: crypto.randomUUID(),
       type: "STAFF_ACTION_TAKEN",
       payload: { 
         text: staffOutput.response, 
