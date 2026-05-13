@@ -1,10 +1,24 @@
 {
   "version": 2,
-  "installCommand": "npm install",
-  "buildCommand": "echo \"Build complete\"",
+  "builds": [
+    {
+      "src": "apps/webhook/api/**/*.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "apps/webhook/**",
+          "core/**",
+          "infrastructure/**",
+          "services/**",
+          "package.json",
+          "tsconfig.base.json"
+        ]
+      }
+    }
+  ],
   "routes": [
-    { "src": "/health", "dest": "apps/webhook/api/health.ts" },
-    { "src": "/webhook", "dest": "apps/webhook/api/webhook.ts" },
-    { "src": "/admin/(.*)", "dest": "apps/webhook/api/admin/$1.ts" }
+    { "src": "/api/health",       "dest": "apps/webhook/api/health.ts" },
+    { "src": "/api/webhook",      "dest": "apps/webhook/api/webhook.ts" },
+    { "src": "/api/admin/events", "dest": "apps/webhook/api/admin/events.ts" }
   ]
 }

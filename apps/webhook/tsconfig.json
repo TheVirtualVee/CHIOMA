@@ -1,15 +1,17 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": ".vercel/output",
-    "rootDir": "."
+    "outDir": "dist",
+    "rootDir": ".",
+    "noEmit": false
   },
   "include": ["api/**/*"],
   "exclude": [
     "**/*.test.ts",
     "**/simulation-*",
     "**/audit/*",
-    "**/tools/*"
+    "**/tools/*",
+    "dist"
   ],
   "references": [
     { "path": "../../core" },
