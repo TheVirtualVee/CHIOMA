@@ -4,5 +4,15 @@
     "outDir": ".vercel/output",
     "rootDir": "."
   },
-  "include": ["src/**/*", "api/**/*"]
+  "include": ["api/**/*"],
+  "exclude": [
+    "**/*.test.ts",
+    "**/simulation-*",
+    "**/audit/*",
+    "**/tools/*"
+  ],
+  "references": [
+    { "path": "../../core" },
+    { "path": "../../infrastructure" }
+  ]
 }

@@ -7,8 +7,11 @@
  * SIDE EFFECT: Supabase read. Why necessary: operational visibility.
  */
 
-import { createSupabaseEventLog } from "@chioma/infrastructure";
-import { createConsoleLogger } from "@chioma/infrastructure";
+import { 
+  createSupabaseEventLog, 
+  createConsoleLogger, 
+  createDatabaseClient 
+} from "@chioma/infrastructure";
 
 const logger = createConsoleLogger("admin-events");
 const ADMIN_SECRET = process.env.CHIOMA_ADMIN_SECRET;
@@ -41,12 +44,17 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // ASSERT: tenant isolation enforced — only requested tenant's events returned
-  const log = createSupabaseEventLog(DATABASE_URL);
-  const events = await log.getHistory(tenantId);
-  const sliced = events.slice(-limit);
+  const sql = await createDatabaseClient(DATABASE_URL, { max: 1 });
+  try {
+    const log = createSupabaseEventLog(sql);
+    const events = await log.getHistory(tenantId);
+    const sliced = events.slice(-limit);
 
-  return new Response(
-    JSON.stringify({ tenantId, count: sliced.length, events: sliced }),
-    { status: 200, headers: { "Content-Type": "application/json" } },
-  );
+    return new Response(
+      JSON.stringify({ tenantId, count: sliced.length, events: sliced }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  } finally {
+    await sql.end();
+  }
 }

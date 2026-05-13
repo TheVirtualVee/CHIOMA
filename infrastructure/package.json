@@ -10,10 +10,11 @@
   },
   "dependencies": {
     "@chioma/core": "*",
-    "@supabase/supabase-js": "^2.105.4",
-    "postgres": "^3.4.9"
+    "@supabase/supabase-js": "^2.45.0",
+    "postgres": "^3.4.9",
+    "zod": "^3.23.8"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -b tsconfig.json"
   }
 }

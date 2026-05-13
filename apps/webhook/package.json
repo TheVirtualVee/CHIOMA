@@ -4,14 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -b tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@chioma/core": "file:../../core",
-    "@chioma/infrastructure": "file:../../infrastructure",
-    "@chioma/ingestion-service": "file:../../services/ingestion-service",
-    "postgres": "^3.4.9"
+    "@chioma/core": "*",
+    "@chioma/infrastructure": "*",
+    "@chioma/ingestion-service": "*",
+    "postgres": "^3.4.9",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

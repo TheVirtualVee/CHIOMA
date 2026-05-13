@@ -1,6 +1,6 @@
 import type { ChiomaManifest, ReadinessReport } from "./readiness.js";
 import { defaultManifestPath, loadManifestFromPath, validateAgainstProcessEnv } from "./readiness.js";
-import { detectRuntimePlatform, platformEnvHints } from "../../../config/smart-env-loader.js";
+import { detectRuntimePlatform, platformEnvHints } from "../config/smart-env-loader.js";
 
 export { detectRuntimePlatform, platformEnvHints };
 export type BootstrapResult = {
