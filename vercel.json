@@ -1,6 +1,7 @@
 {
   "version": 2,
   "installCommand": "npm install",
+  "buildCommand": "echo \"Build complete\"",
   "routes": [
     { "src": "/health", "dest": "apps/webhook/api/health.ts" },
     { "src": "/webhook", "dest": "apps/webhook/api/webhook.ts" },
