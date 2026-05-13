@@ -84,7 +84,7 @@ async function boot(): Promise<void> {
 
   registerMemoryStore(bus);
   registerIntentService(bus);
-  registerContextCompiler(bus);
+  registerContextCompiler(bus, sql);
   registerLlmOrchestrator(bus);
   registerCommitmentEngine(bus);
   registerReliabilityEngine(bus);

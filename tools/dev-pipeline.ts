@@ -72,7 +72,15 @@ async function main(): Promise<void> {
   registerBusinessTrainingEngine(bus);
   registerMemoryStore(bus);
   registerIntentService(bus);
-  registerContextCompiler(bus);
+  
+  // Use a temporary SQL client if needed for dev-pipeline, or pass null
+  if (dbUrl) {
+    const sql = await createDatabaseClient(dbUrl);
+    registerContextCompiler(bus, sql);
+  } else {
+    registerContextCompiler(bus, null as any);
+  }
+
   registerLlmOrchestrator(bus);
   registerCommitmentEngine(bus);
   registerReliabilityEngine(bus);

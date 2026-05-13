@@ -4,7 +4,7 @@ import {
   type DomainEvent, 
   createFollowupEvent 
 } from "@chioma/core";
-import { createConsoleLogger, metrics, createLlmProviderFromEnv } from "@chioma/infrastructure";
+import { createConsoleLogger, createLlmProviderFromEnv } from "@chioma/infrastructure";
 import type postgres from "postgres";
 
 const logger = createConsoleLogger("onboarding-engine");

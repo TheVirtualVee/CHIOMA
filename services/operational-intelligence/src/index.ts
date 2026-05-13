@@ -1,15 +1,14 @@
 import { 
   EVENT_TYPES, 
   type EventBus, 
-  type DomainEvent, 
-  createFollowupEvent 
+  type DomainEvent 
 } from "@chioma/core";
 import { createConsoleLogger } from "@chioma/infrastructure";
 import type postgres from "postgres";
 
 const logger = createConsoleLogger("operational-intelligence");
 
-export function registerIntelligenceService(bus: EventBus, sql: postgres.Sql) {
+export function registerIntelligenceService(bus: EventBus, _sql: postgres.Sql) {
   
   // Example: Listen for ONBOARDING_COMPLETED to send a welcome summary
   bus.subscribe(EVENT_TYPES.ONBOARDING_COMPLETED, async (event: DomainEvent) => {
@@ -18,7 +17,7 @@ export function registerIntelligenceService(bus: EventBus, sql: postgres.Sql) {
   });
 
   // Example: Detect high-value intent that wasn't responded to by human
-  bus.subscribe(EVENT_TYPES.ESCALATION_TRIGGERED, async (event: DomainEvent) => {
+  bus.subscribe(EVENT_TYPES.ESCALATION_TRIGGERED, async (_event: DomainEvent) => {
     // Record this for the morning digest
   });
 }

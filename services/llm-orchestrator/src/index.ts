@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EVENT_TYPES, mapInstruction, createFollowupEvent, type EventBus, type LlmStructuredOutput, type ExecutionIntent } from "@chioma/core";
+import { EVENT_TYPES, createFollowupEvent, type EventBus, type LlmStructuredOutput, type ExecutionIntent } from "@chioma/core";
 import { createConsoleLogger, devEvent, metrics, overseer, createLlmProviderFromEnv } from "@chioma/infrastructure";
 
 const LlmOutputSchema = z.object({
@@ -23,13 +23,17 @@ export function registerLlmOrchestrator(bus: EventBus): void {
     let resolvedIntent: ExecutionIntent = "assist" as any;
 
     try {
-      const intent = mapInstruction(input, { tenantId: event.tenantId });
-      resolvedIntent = intent;
+      const facts = (payload as any).businessFacts ?? [];
+      const factsStr = facts.map((f: any) => `${f.key}: ${JSON.stringify(f.value)}`).join("\n");
 
       // ─── LLM Bounded Cognition Call ───────────────────────────────────────
       const llmResult = await llm.complete({
         systemPrompt: `You are CHIOMA, a trusted operational employee for a business in Nigeria.
 Respond like a professional, helpful local assistant. 
+
+BUSINESS CONTEXT:
+${factsStr}
+
 Use short, natural, and emotionally intelligent language. 
 Avoid robotic or corporate AI-style phrasing.
 Tolerate and adapt to local slang, shorthand, or pidgin if appropriate for the context.
