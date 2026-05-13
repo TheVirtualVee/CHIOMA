@@ -25,9 +25,10 @@ const LlmOutputSchema = z.object({
 export async function generateResponse(
   message: string,
   context: string,
-  config: { apiKey: string; provider: string; model?: string }
+  config: { apiKey: string; provider: string; model?: string; tone?: string }
 ): Promise<LlmOutput> {
   const systemPrompt = `You are CHIOMA, a real-time revenue reflex layer for small businesses.
+TONE PROFILE: ${config.tone || "friendly-shopkeeper"}
 BUSINESS CONTEXT:
 ${context || "(No facts provided)"}
 

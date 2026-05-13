@@ -1,18 +1,3 @@
-/**
- * core/contracts/index.ts
- *
- * The non-executable source of truth for CHIOMA's system shape.
- * Contains only interfaces and types used in the live runtime.
- */
-
-export interface ChiomaEvent {
-  id: string;
-  type: string;
-  tenantId: string;
-  payload: any;
-  timestamp: number;
-}
-
 export interface SyncPipelineInput {
   tenantId: string;
   senderPhone: string;
@@ -30,12 +15,6 @@ export interface SyncPipelineResult {
   correlationId: string;
 }
 
-export interface OnboardingState {
-  tenantId: string;
-  status: "PENDING" | "STARTED" | "COMPLETED";
-  currentStep: string | null;
-}
-
 export interface LlmOutput {
   response: string;
   intent: string;
@@ -48,4 +27,29 @@ export interface LlmOutput {
   };
   proposed_commitments: any[];
   confidence: number;
+}
+
+export interface EmployabilityProfile {
+  tone_profile: "casual" | "formal" | "street-smart" | "luxury" | "friendly-shopkeeper";
+  response_aggressiveness: "low" | "medium" | "high";
+  follow_up_policy: "disabled" | "soft" | "aggressive";
+  availability_mode: "always-on" | "business-hours-aware" | "owner-away-priority";
+  conversion_bias: "low" | "medium" | "high";
+  owner_preference_memory: Record<string, any>;
+}
+
+export interface CustomerMemory {
+  last_intent?: string;
+  unresolved_count: number;
+  conversion_status: "PROSPECT" | "CUSTOMER" | "LOST";
+  metadata: Record<string, any>;
+}
+
+export interface EmployabilityDecision {
+  response_type: "reply" | "escalate" | "follow_up" | "hold";
+  tone: string;
+  urgency_level: number;
+  should_notify_owner: boolean;
+  revenue_weight: number;
+  next_action: string;
 }

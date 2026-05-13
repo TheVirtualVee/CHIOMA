@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@chioma/core": "workspace:*",
-    "@chioma/infrastructure": "workspace:*",
-    "@chioma/llm-orchestrator": "workspace:*",
-    "@chioma/onboarding-engine": "workspace:*",
+    "@chioma/core": "*",
+    "@chioma/infrastructure": "*",
+    "@chioma/llm-orchestrator": "*",
+    "@chioma/onboarding-engine": "*",
     "postgres": "^3.4.9",
     "zod": "^3.23.8"
   }
