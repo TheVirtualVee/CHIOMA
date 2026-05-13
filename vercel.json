@@ -1,4 +1,17 @@
 {
+  "version": 2,
   "installCommand": "npm install",
-  "buildCommand": "npm run build --workspace=@chioma/webhook"
+  "buildCommand": "npm run build:webhook",
+  "framework": null,
+  "functions": {
+    "apps/webhook/api/**/*.ts": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 15
+    }
+  },
+  "routes": [
+    { "src": "/health", "dest": "apps/webhook/api/health.ts" },
+    { "src": "/webhook", "dest": "apps/webhook/api/webhook.ts" },
+    { "src": "/admin/(.*)", "dest": "apps/webhook/api/admin/$1.ts" }
+  ]
 }
