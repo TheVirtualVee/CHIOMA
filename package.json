@@ -6,8 +6,6 @@
     "core",
     "infrastructure",
     "services/*",
-    "workers/*",
-    "cli/*",
     "apps/*"
   ],
   "scripts": {
@@ -24,8 +22,7 @@
     "db:reset": "supabase db reset --db-url \"$DATABASE_URL\"",
     "deploy:check": "node scripts/deploy-check.mjs",
     "build:webhook": "npm run build --workspace=@chioma/webhook",
-    "deploy:webhook": "cd apps/webhook && vercel deploy --prod",
-    "build:worker": "cd apps/worker && npm run build"
+    "deploy:webhook": "cd apps/webhook && vercel deploy --prod"
   },
   "dependencies": {
     "@chioma/business-synthesis-engine": "*",
@@ -42,9 +39,6 @@
     "@chioma/llm-orchestrator": "*",
     "@chioma/memory-store": "*",
     "@chioma/reliability-engine": "*",
-    "@chioma/worker-commitment-recovery": "*",
-    "@chioma/worker-escalation-loop": "*",
-    "@chioma/worker-memory-compaction": "*",
     "postgres": "^3.4.9"
   },
   "devDependencies": {

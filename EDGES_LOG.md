@@ -1,45 +1,18 @@
-# CHIOMA — Edge cases & invariants log
+# CHIOMA — Operational Invariants & Edge cases
 
-Append-only operational notes for agents and humans. Update when new edges are discovered.
+Append-only log for critical system invariants and discovered edges in the simplified runtime.
 
-## Logged edge cases (bootstrap)
+## 🧱 Core Invariants
 
-1. **Multi-intent message** — A single customer message may encode several intents. The system must classify, split, or escalate; it must never silently pick one intent without an explicit policy path or human escalation.
+1. **Single-Runtime Synchronicity** — The entire cognition pipeline (Onboarding → Context → LLM → Persist → Deliver) MUST execute within a single HTTP request lifecycle. Background workers and async queues are forbidden.
+2. **Event-Sourced Traceability** — Every interaction MUST be committed to `core.events` before a response is delivered. The event log is the authoritative source of business memory.
+3. **Institutional Idempotency** — Incoming messages must be checked against `processed_messages` using `messageId` to prevent double-processing during network retries.
+4. **Tenant Isolation** — Every database query and LLM prompt MUST be scoped by `tenantId`. Cross-tenant data leakage is a critical failure.
 
-2. **Proposed commitment fails validation** — LLM output may include `proposed_commitments` that fail ambiguity/confidence/business-feasibility gates. The commitment engine must reject creation, emit no `COMMITMENT_CREATED`, and force a regeneration path with stricter constraints (never persist a hallucinated promise).
+## 🔍 Logged Edges
 
-3. **Event idempotency / replay** — The same logical event may be retried or replayed during recovery. Projections and handlers must be idempotent on `event.id` (or an explicit idempotency key) to avoid double state transitions.
-
-4. **Delivery without business mutation** — WhatsApp send failures, retries, or duplicate delivery acks must not mutate commitments or customer memory directly; only delivery-related events and audit entries.
-
-5. **Safety layer ordering** — Context compiler must never drop or compress the safety layer or active commitments to satisfy token budget; only warm/cold memory may be compressed when over budget.
-
-6. **Single event type, multiple lifecycle stages** — The scaffold chains `MEMORY_UPDATED` with payload `kind` (`CONTEXT_SNAPSHOT` → `LLM_COMPLETED`) because the SSOT lists only eight top-level event types. Production should either keep this contract explicit in `core/contracts` or introduce additional immutable event types with a migration plan; handlers must never mis-handle `kind` or they will double-trigger LLM or delivery.
-
-7. **v1.1 tenant + provenance** — `tenantId` on envelopes is mandatory for production projections; synthesis/training proposals carry `provenance[].verified_by_owner === false` until `BUSINESS_STATE_OWNER_CONFIRMED` (or equivalent) events apply patches. Cross-tenant reads are a severity-1 incident: always scope retrieval by tenant.
-
-8. **AGENTS.md as universal entrant** — All agentic tools must treat root `AGENTS.md` as the single front door; the Engineering Constitution is the behavioral governor for the whole repo. Forks that drop `AGENTS.md` lose mandatory governance until restored.
-
-- **Overseer Engine Determinism**: The overseer must remain stateless and deterministic. Any reliance on dynamic state (like git branch or time) in core rules will break replay safety of the enforcement logic itself.
-- **Agent Enforcement Loop**: Agents are now required by Cursor Rule to run 
-pm run overseer:check before completion. Failure to do so bypasses the primary trust gate of CHIOMA v1.1.
-- **RegExp State Leakage**: When using global regexes (/g), always use 
-ew RegExp() or .test() on non-global instances to avoid lastIndex state leakage across multiple file scans in the same process.
-
-## Phase 3 — Operational Convergence edges (discovered during audit)
-
-9. **WhatsApp signature validation missing** — `handleWebhook` accepts any body without verifying `x-hub-signature-256` HMAC. A forged request would enter the event log as a real tenant event. [STATUS: PENDING]
-
-10. **getSince references `global_position` column** — Fixed in foundations migration. All event polling now uses authoritative BIGSERIAL global_position. [STATUS: RESOLVED]
-
-11. **delivery-service sends to WhatsApp in-process** — Current `registerDeliveryService` emits `RESPONSE_SENT` event but actual HTTP call is unwired. [STATUS: PENDING]
-
-12. **LLM has no timeout or retry** — Hardened in `infrastructure/src/ai/llm.ts` with `withRetry` and `fetchWithTimeout` decorators. [STATUS: RESOLVED]
-
-13. **No Vercel surface exists** — Hardened. `apps/webhook/` and `vercel.json` are now authoritative for edge deployments. [STATUS: RESOLVED]
-
-14. **No Render surface exists** — Hardened. `render.yaml` and `apps/worker/src/main.ts` provide a deterministic background runtime. [STATUS: RESOLVED]
-
-15. **DB bootstrap is a side-effect** — Hardened. Ad-hoc `CREATE TABLE` calls removed. All schema state is now managed via `supabase/migrations`. [STATUS: RESOLVED]
-
-16. **No schema validation at boot** — Hardened. `apps/worker/src/main.ts` now executes `validateSchemaIntegrity` as a mandatory boot gate. [STATUS: RESOLVED]
+1. **LLM Timeout/Latency** — In the synchronous pipeline, LLM calls must have strict timeouts (<12s) to prevent the Vercel request from hanging. If an LLM call fails or times out, the system must enter "degraded mode" and notify the user to try again.
+2. **Onboarding Interruptions** — Customers may send non-answer messages during onboarding. The engine must handle extraction gracefully and repeat questions if necessary rather than crashing.
+3. **WhatsApp Signature Forgery** — All incoming POST requests must be validated using `x-hub-signature-256` HMAC to prevent unauthorized event injection.
+4. **Simulation Divergence** — Ensure the `/api/simulate-message` path uses the EXACT same `runSyncPipeline` as the live webhook to prevent "works in simulation only" bugs.
+5. **Cold Boot Latency** — First requests to a Vercel lambda may see higher latency. Ensure DB connections are reused and LLM initialization is lazy where possible.

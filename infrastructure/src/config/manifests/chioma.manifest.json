@@ -1,9 +1,0 @@
-{
-  "required": ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"],
-  "optional": ["REDIS_URL", "SENTRY_DSN", "OPENAI_API_KEY"],
-  "platform_specific": {
-    "vercel": ["VERCEL_URL"],
-    "railway": ["RAILWAY_STATIC_URL"],
-    "render": ["RENDER_EXTERNAL_URL"]
-  }
-}

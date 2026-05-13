@@ -17,8 +17,10 @@
     }
   ],
   "routes": [
-    { "src": "/api/health",       "dest": "apps/webhook/api/health.ts" },
-    { "src": "/api/webhook",      "dest": "apps/webhook/api/webhook.ts" },
-    { "src": "/api/admin/events", "dest": "apps/webhook/api/admin/events.ts" }
+    { "src": "/api/health",            "dest": "apps/webhook/api/health.ts" },
+    { "src": "/api/webhook",           "dest": "apps/webhook/api/webhook.ts" },
+    { "src": "/api/admin/events",      "dest": "apps/webhook/api/admin/events.ts" },
+    { "src": "/api/simulate-message",  "dest": "apps/webhook/api/simulate-message.ts" },
+    { "src": "/api/demo",              "dest": "apps/webhook/api/demo.ts" }
   ]
 }

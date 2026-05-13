@@ -1,19 +1,30 @@
 {
-  "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "checkJs": true,
     "noEmit": true,
-    "rootDir": "."
+    "rootDir": ".",
+    "paths": {
+      "@chioma/*": ["./*"]
+    }
   },
   "include": [
-    "core/src/**/*.ts",
-    "infrastructure/src/**/*.ts",
-    "services/*/src/**/*.ts",
-    "workers/*/src/**/*.ts",
-    "cli/*/src/**/*.ts",
-    "config/**/*.ts",
-    "tools/**/*.ts",
-    "evals/**/*.ts",
-    "vitest.config.ts"
+    "apps/**/*",
+    "core/**/*",
+    "infrastructure/**/*",
+    "services/**/*"
   ],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "**/dist",
+    "**/*.test.ts"
+  ]
 }

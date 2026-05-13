@@ -1,24 +1,14 @@
 {
   "name": "@chioma/webhook",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": {
-    "build": "tsc -b tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
   "dependencies": {
-    "@chioma/core": "file:../../core",
-    "@chioma/infrastructure": "file:../../infrastructure",
-    "@chioma/ingestion-service": "file:../../services/ingestion-service",
+    "@chioma/core": "workspace:*",
+    "@chioma/infrastructure": "workspace:*",
+    "@chioma/llm-orchestrator": "workspace:*",
+    "@chioma/onboarding-engine": "workspace:*",
     "postgres": "^3.4.9",
     "zod": "^3.23.8"
-  },
-  "devDependencies": {
-    "@types/node": "^22.10.0",
-    "typescript": "^5.7.2"
-  },
-  "engines": {
-    "node": ">=18"
   }
 }

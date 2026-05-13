@@ -1,20 +1,6 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": ".",
-    "noEmit": false
   },
-  "include": ["api/**/*"],
-  "exclude": [
-    "**/*.test.ts",
-    "**/simulation-*",
-    "**/audit/*",
-    "**/tools/*",
-    "dist"
-  ],
-  "references": [
-    { "path": "../../core" },
-    { "path": "../../infrastructure" }
-  ]
+  "include": ["api/**/*"]
 }

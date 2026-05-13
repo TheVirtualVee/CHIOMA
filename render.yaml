@@ -1,35 +1,12 @@
-services:
-  - name: chioma-worker
-    type: worker
-    env: node
-    region: oregon
-    plan: starter
-    rootDir: apps/worker
-    buildCommand: cd ../.. && npm install && npm run build
-    startCommand: node --experimental-vm-modules dist/main.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: DATABASE_URL
-        sync: false
-      - key: LLM_PROVIDER
-        sync: false
-      - key: LLM_API_KEY
-        sync: false
-      - key: WHATSAPP_ACCESS_TOKEN
-        sync: false
-      - key: WHATSAPP_PHONE_NUMBER_ID
-        sync: false
-      - key: WHATSAPP_APP_SECRET
-        sync: false
-      - key: CHIOMA_TENANT_IDS
-        sync: false
-      - key: CONSUMER_GROUP
-        value: chioma_core
-      - key: POLL_INTERVAL_MS
-        value: "1000"
-    healthCheckPath: ~
-    autoDeploy: true
-    scaling:
-      minInstances: 1
-      maxInstances: 3
+# ARCHIVED: CHIOMA ARCHITECTURE SIMPLIFICATION (v1)
+# 
+# This file is archived and should not be used for deployment.
+# CHIOMA has been collapsed into a single-runtime system (Vercel-only).
+# Background workers and Render-specific services are removed from the active runtime.
+#
+# See: apps/webhook and core/runtime/sync-runtime.ts (now in apps/webhook/lib)
+#
+# services:
+#   - name: chioma-worker
+#     type: worker
+#     ...

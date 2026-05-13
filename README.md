@@ -1,228 +1,94 @@
 # CHIOMA
 
-**A stateful commercial trust runtime that operates as a bounded digital employee via WhatsApp.**
+**A real-time conversational employee runtime for Nigerian businesses, operating via WhatsApp.**
 
-CHIOMA is not a chatbot. It is not a dashboard SaaS. It is a deterministic, event-sourced execution runtime that businesses deploy to handle customer commitments, follow-ups, escalations, and business memory — reliably — through WhatsApp.
+CHIOMA is a deterministic execution runtime deployed on Vercel. It allows businesses to handle customer inquiries, onboarding, and business memory reliably through a single synchronous pipeline.
 
 ---
 
 ## What it does
 
-- Receives WhatsApp messages from customers
-- Classifies intent deterministically (no hallucination)
-- Tracks commitments with explicit validation gates
-- Escalates overdue commitments to the business owner
-- Persists every interaction as an immutable event log
-- Replays from cold state after crashes or redeployments
-- Delivers responses via WhatsApp with retry guarantees
-
-The WhatsApp thread is the product surface. Dashboards are internal-only operational tools.
+- **Instant Ingress**: Receives and validates WhatsApp messages in real-time.
+- **Conversational Onboarding**: Automatically guides business owners through setup via chat.
+- **Synchronous Intelligence**: Uses LLM orchestration to classify intent and generate responses inline.
+- **Event-Sourced Memory**: Persists every interaction to a Supabase event log for auditable business history.
+- **Zero-Latency Response**: Executes the entire cognition pipeline and delivers a reply within the 5s webhook window.
 
 ---
 
-## Architecture
+## Simplified Architecture
+
+CHIOMA operates as a single-runtime execution engine:
 
 ```
-WhatsApp → Vercel Webhook → Supabase Event Log → Render Worker → WhatsApp
-                                      ↕
-                               Consumer Workers
-                          (commitment, escalation, memory)
+WhatsApp → Vercel Webhook (Sync Runtime) → WhatsApp
+                   ↓
+           Supabase Event Log
 ```
 
-**Deployment surfaces:**
-
-| Surface | Platform | Purpose |
-|---------|----------|---------|
-| `apps/webhook/` | Vercel | Webhook handler, health, admin API |
-| `apps/worker/` | Render | Consumer workers, long-lived processes |
-| `supabase/` | Supabase | Authoritative event store |
+**Runtime Reality:**
+- **Entrypoint**: `apps/webhook/api/webhook.ts`
+- **Execution Engine**: `core/runtime/index.ts`
+- **Database**: Supabase (PostgreSQL)
+- **Host**: Vercel (Serverless)
 
 ---
 
-## Deploy in 4 steps
+## Quick Start (Vercel Only)
 
-### 1. Supabase — provision the event store
+### 1. Database Setup (Supabase)
+1. Create a project at [supabase.com](https://supabase.com).
+2. Apply migrations: `npm run db:push`.
 
-1. Create a project at [supabase.com](https://supabase.com)
-2. Copy the **Database Connection String (URI)** from Project Settings → Database
-3. Apply migrations:
+### 2. Configuration (Vercel)
+Set these environment variables in your Vercel project:
+- `DATABASE_URL`: Your Supabase connection string.
+- `LLM_API_KEY`: Groq or OpenAI API Key.
+- `LLM_PROVIDER`: `groq` (recommended) or `openai`.
+- `WHATSAPP_ACCESS_TOKEN`: From Meta Developer Portal.
+- `WHATSAPP_PHONE_NUMBER_ID`: From Meta Developer Portal.
+- `WHATSAPP_APP_SECRET`: From Meta Developer Portal.
+- `WHATSAPP_VERIFY_TOKEN`: Your chosen random string.
 
+### 3. Deploy
 ```bash
-cp .env.example .env
-# Fill in DATABASE_URL
-npm run db:push
-```
-
-### 2. Meta Developer Console — configure WhatsApp
-
-1. Create a Meta App at [developers.facebook.com](https://developers.facebook.com)
-2. Add **WhatsApp** product to your app
-3. Note your **Phone Number ID** and **Access Token**
-4. Note your **App Secret** (App Settings → Basic)
-5. Choose a **Verify Token** (any random string you control)
-
-### 3. Deploy webhook to Vercel
-
-```bash
-# Install Vercel CLI if needed
-npm i -g vercel
-
-# Deploy the webhook surface
-cd apps/webhook
+# From root
 vercel deploy --prod
 ```
 
-Set these environment variables in Vercel:
+---
 
-```
-DATABASE_URL             (from Supabase)
-WHATSAPP_ACCESS_TOKEN    (from Meta)
-WHATSAPP_PHONE_NUMBER_ID (from Meta)
-WHATSAPP_APP_SECRET      (from Meta)
-WHATSAPP_VERIFY_TOKEN    (your chosen token)
-CHIOMA_ADMIN_SECRET      (any strong random string)
-```
+## Project Structure
 
-After deploy, register your webhook URL in Meta Developer Console:
-- **Callback URL**: `https://your-vercel-url.vercel.app/webhook`
-- **Verify Token**: same as `WHATSAPP_VERIFY_TOKEN`
-- **Subscribe to**: `messages`
+Normalized for minimal cognitive noise and production-grade review:
 
-### 4. Deploy worker to Render
-
-Connect your GitHub repo to [render.com](https://render.com). Render reads `render.yaml` automatically.
-
-Set these environment variables in Render:
-
-```
-DATABASE_URL             (from Supabase)
-WHATSAPP_ACCESS_TOKEN    (from Meta)
-WHATSAPP_PHONE_NUMBER_ID (from Meta)
-WHATSAPP_APP_SECRET      (from Meta)
-LLM_PROVIDER             groq  (or openai / anthropic / openrouter)
-LLM_API_KEY              (from your LLM provider)
-CHIOMA_TENANT_IDS        tenant_{YOUR_PHONE_NUMBER_ID}
-```
+- **`apps/webhook/`**: Live ingress boundary (WhatsApp + Simulation).
+- **`core/runtime/`**: The synchronous execution "brain".
+- **`core/contracts/`**: Consolidated types and event schemas.
+- **`services/onboarding-engine/`**: Business setup flow logic.
+- **`services/llm-orchestrator/`**: AI response generation and validation.
+- **`infrastructure/database/`**: Shared DB client and persistence.
+- **`infrastructure/config/`**: Environment validation.
 
 ---
 
-## Environment variables
+## Development & Simulation
 
-See [`.env.example`](.env.example) for the full reference with descriptions.
-
-### Required for all surfaces
-
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | Supabase PostgreSQL connection URI |
-| `WHATSAPP_ACCESS_TOKEN` | Meta WhatsApp Cloud API access token |
-| `WHATSAPP_PHONE_NUMBER_ID` | Meta phone number ID |
-| `WHATSAPP_APP_SECRET` | Meta app secret (for HMAC signature validation) |
-| `WHATSAPP_VERIFY_TOKEN` | Your chosen verification token |
-| `LLM_PROVIDER` | `groq` \| `openai` \| `anthropic` \| `openrouter` |
-| `LLM_API_KEY` | API key for chosen LLM provider |
-| `CHIOMA_TENANT_IDS` | Comma-separated tenant IDs |
-| `CHIOMA_ADMIN_SECRET` | Secret for `/admin/*` endpoints |
-
-### Optional
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LLM_MODEL` | provider default | Override LLM model |
-| `LLM_TIMEOUT_MS` | `15000` | LLM call timeout |
-| `LLM_MAX_RETRIES` | `2` | LLM retry count |
-| `POLL_INTERVAL_MS` | `1000` | Consumer worker poll interval |
-| `CONSUMER_GROUP` | `chioma_core` | Consumer group name |
-
----
-
-## Pre-deploy validation
+Use the simulation endpoint to test the full pipeline without WhatsApp credentials:
 
 ```bash
-node scripts/deploy-check.mjs
-```
-
-Runs TypeScript type-check, full test suite, and governance gate. Exit 0 = ready to deploy.
-
----
-
-## LLM Provider Selection
-
-| Provider | Speed | Cost | `LLM_PROVIDER` value |
-|----------|-------|------|----------------------|
-| **Groq** | ⚡ Fastest | 💚 Cheapest | `groq` |
-| OpenRouter | Fast | 💛 Variable | `openrouter` |
-| OpenAI | Moderate | 🔴 Higher | `openai` |
-| Anthropic | Moderate | 🔴 Higher | `anthropic` |
-
-Recommended default: **Groq** (`llama-3.1-8b-instant`) — fast, cheap, sufficient for bounded advisory responses.
-
----
-
-## Internal admin surfaces
-
-All admin endpoints require `x-admin-secret` header matching `CHIOMA_ADMIN_SECRET`.
-
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /health` | Worker/webhook health check |
-| `GET /admin/events?tenantId=X&limit=50` | Inspect event log for tenant |
-
----
-
-## Architecture principles
-
-1. **Supabase is authoritative truth** — the event log is the system of record
-2. **Event log is append-only** — immutability enforced by DB trigger
-3. **LLM is non-authoritative** — advisory only, never mutates state directly
-4. **Every execution terminates** — COMPLETED or FAILED, never hanging
-5. **Tenant isolation is mandatory** — all queries and events are tenant-scoped
-6. **Runtime is replay-safe** — any state can be reconstructed from events
-
----
-
-## Project structure
-
-```
-CHIOMA/
-├── apps/
-│   ├── webhook/          # Vercel surface — webhook + admin APIs
-│   └── worker/           # Render surface — consumer runtime
-├── core/                 # Shared contracts, ECB, event schemas
-├── infrastructure/       # Supabase client, LLM, observability
-├── services/             # Domain service handlers
-├── workers/              # Background worker processes
-├── supabase/
-│   └── migrations/       # All DB migrations (apply with npm run db:push)
-├── tools/
-│   └── overseer-engine/  # Governance validation gate
-├── evals/                # Trust and integrity test suite
-├── render.yaml           # Render deployment definition
-├── .env.example          # Environment variable reference
-└── scripts/
-    └── deploy-check.mjs  # Pre-deploy validation
+POST /api/simulate-message
+{
+  "tenantId": "test_business",
+  "from": "+2348000000000",
+  "text": "Hello, I want to set up my shop."
+}
 ```
 
 ---
 
-## Running locally
-
-```bash
-# Install dependencies
-npm install
-
-# Copy env and configure
-cp .env.example .env
-
-# Apply DB migrations
-npm run db:push
-
-# Run full pipeline (dev mode, in-memory event bus)
-npm run dev
-
-# Run tests
-npm test
-
-# Governance gate
-npm run overseer:check
-```
+## Core Invariants
+1. **Single Execution Truth**: HTTP Input → Sync Processing → Response.
+2. **Authoritative Event Log**: Every message is committed before processing.
+3. **LLM Non-Authority**: AI output is validated via Zod before use.
+4. **Tenant Isolation**: All data access is strictly scoped to `tenantId`.

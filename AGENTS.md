@@ -38,8 +38,8 @@ If still ambiguous: stop, ask the human, or open a minimal design note in the PR
 
 ## Repo quick map
 
-- Packages: `core/`, `infrastructure/`, `services/*`, `workers/*`, `cli/chioma-init/`, `evals/`, `config/`, `tools/`.
-- Trust and CI: `npm test`, `npm run build`; evals under `evals/trust/`.
+- Packages: `apps/webhook`, `services/llm-orchestrator`, `services/onboarding-engine`, `core/contracts`, `core/runtime`, `infrastructure/database`, `infrastructure/config`.
+- Production: `npm run build:webhook`, `npm run dev`.
 
 ## EDGES and operational memory
 
