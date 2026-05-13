@@ -8,9 +8,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@chioma/core": "*",
-    "@chioma/infrastructure": "*",
-    "@chioma/ingestion-service": "*",
+    "@chioma/core": "file:../../core",
+    "@chioma/infrastructure": "file:../../infrastructure",
+    "@chioma/ingestion-service": "file:../../services/ingestion-service",
     "postgres": "^3.4.9",
     "zod": "^3.23.8"
   },
