@@ -32,6 +32,7 @@ The **Engineering Execution Constitution** is the universal behavioral governor 
 - `/services/response-service`: Generates professional staff replies.
 - `/services/onboarding-service`: Employer training and knowledge lock.
 - `/services/business-learning`: Social learning from Instagram/TikTok/Web.
+- `/core/staff-rules`: Deterministic operational authority (Rule Engine).
 - `/core/contracts`: Behavioral staff models and need classifications.
 
 ## Operational memory
