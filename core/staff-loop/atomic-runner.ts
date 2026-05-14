@@ -198,8 +198,8 @@ export async function runAtomicStaffLoop(
       
       validateInvariants({ stage: "FINALIZED", idempotencyKey: input.messageId });
 
-      telemetry.record("FINALIZATION_DONE", { resultType: result.responseType });
-      return result;
+      telemetry.record("FINALIZATION_DONE", { resultType: loopResult.responseType });
+      return loopResult;
     });
 
     await releaseLease(sql, aggregateId, workerId, lease.fencingToken);
