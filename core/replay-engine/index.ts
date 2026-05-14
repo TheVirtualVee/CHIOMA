@@ -2,6 +2,8 @@ import type postgres from "postgres";
 import { runAtomicStaffLoop } from "../staff-loop/atomic-runner.js";
 import { createDatabaseClient } from "../../infrastructure/database/index.js";
 import { validateConfig } from "../../infrastructure/config/index.js";
+import { TelemetryManager, createTraceContext } from "../telemetry/index.js";
+import { randomUUID } from "node:crypto";
 
 const MAX_RETRIES = 3;
 
@@ -13,10 +15,9 @@ const MAX_RETRIES = 3;
  */
 
 export async function replayFailedMessages(sql: postgres.Sql) {
-  console.log("[REPLAY_ENGINE] CHECKING_FOR_FAILED_MESSAGES");
-
+  const workerId = `worker_replay_${process.env.VERCEL_REGION || "local"}`;
+  
   // 1. Identify candidates for recovery
-  // We look for FAILED messages or PROCESSING messages that have hung for > 10 minutes.
   const failed = await sql`
     SELECT * FROM message_ledger
     WHERE (status = 'FAILED' OR (status = 'PROCESSING' AND updated_at < NOW() - INTERVAL '10 minutes'))
@@ -26,11 +27,15 @@ export async function replayFailedMessages(sql: postgres.Sql) {
 
   if (failed.length === 0) return;
 
-  console.log(`[REPLAY_ENGINE] REPLAYING_${failed.length}_MESSAGES`);
-
   const config = validateConfig();
 
   for (const msg of failed) {
+    const trace = createTraceContext(workerId);
+    trace.replayId = `rpl_${randomUUID()}`;
+    const telemetry = new TelemetryManager(msg.message_id, trace.traceId);
+    
+    telemetry.record("REPLAY_STARTED", { messageId: msg.message_id, attempt: msg.attempt_count + 1 });
+
     try {
       // 2. Lock for re-processing
       await sql`
@@ -42,13 +47,15 @@ export async function replayFailedMessages(sql: postgres.Sql) {
       `;
 
       // 3. Re-run the atomic staff loop
-      // The payload in the ledger should already be the StaffLoopInput
-      const input = msg.payload;
+      const input = {
+        ...msg.payload,
+        traceContext: trace
+      };
       
-      const result = await runAtomicStaffLoop(input, sql, { 
+      await runAtomicStaffLoop(input, sql, { 
         apiKey: config.LLM_API_KEY, 
         provider: config.LLM_PROVIDER 
-      });
+      }, telemetry);
 
       // 4. Mark Complete
       await sql`
@@ -58,10 +65,11 @@ export async function replayFailedMessages(sql: postgres.Sql) {
         WHERE message_id = ${msg.message_id}
       `;
 
-      console.log(`[REPLAY_ENGINE] SUCCESS: ${msg.message_id}`);
+      telemetry.complete("REPLAYED");
 
     } catch (err: any) {
-      console.error(`[REPLAY_ENGINE] FAILURE: ${msg.message_id}`, err);
+      telemetry.record("REPLAY_FAILED", { error: err.message });
+      telemetry.complete("FAILED");
       
       await sql`
         UPDATE message_ledger

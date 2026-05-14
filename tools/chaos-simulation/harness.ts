@@ -1,11 +1,10 @@
 import { createDatabaseClient } from "../../infrastructure/database/index.js";
 import { validateConfig } from "../../infrastructure/config/index.js";
+import { TelemetryManager, createTraceContext } from "../../core/telemetry/index.js";
+import { runAtomicStaffLoop } from "../../core/staff-loop/atomic-runner.js";
 
 /**
  * tools/chaos-simulation/harness.ts
- *
- * CHIOMA Behavioral Reliability Stress Tester.
- * Mimics "real-world pressure" in Nigerian SMB environments.
  */
 
 interface ChaosScenario {
@@ -40,6 +39,7 @@ const SCENARIOS: ChaosScenario[] = [
 export async function runChaosSimulation() {
   const config = validateConfig();
   const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
+  const workerId = `worker_chaos_local`;
   
   console.log("🚀 STARTING CHIOMA CHAOS SIMULATION...");
   
@@ -47,13 +47,15 @@ export async function runChaosSimulation() {
     console.log(`\n--- SCENARIO: ${scenario.name} ---`);
     const tenantId = `tenant_chaos_${Date.now()}`;
     
-    // Bootstrap: Ensure tenant is "onboarded" so we test business logic
+    // Bootstrap
     await sql`INSERT INTO employer_profiles (tenant_id, onboarding_status, tone_profile) VALUES (${tenantId}, 'COMPLETED', 'friendly-shopkeeper') ON CONFLICT DO NOTHING`;
     await sql`INSERT INTO business_facts (tenant_id, key, value) VALUES (${tenantId}, 'products', ${sql.json(['Blue Ankara Lace'])}) ON CONFLICT DO NOTHING`;
 
     for (const step of scenario.steps) {
-      const start = Date.now();
+      const trace = createTraceContext(workerId);
       const messageId = `msg_chaos_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const telemetry = new TelemetryManager(messageId, trace.traceId);
+
       const input = {
         messageId,
         tenantId,
@@ -62,20 +64,22 @@ export async function runChaosSimulation() {
         correlationId: `chaos_${Date.now()}`,
         eventId: `evt_chaos_${Date.now()}`,
         causationId: `evt_chaos_${Date.now()}`,
-        channel: "simulation" as const
+        channel: "simulation" as const,
+        traceContext: trace
       };
 
       try {
-        const { runAtomicStaffLoop } = await import("../../core/staff-loop/atomic-runner.js");
-        const result = await runAtomicStaffLoop(input, sql, { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER });
-        const latency = Date.now() - start;
+        const result = await runAtomicStaffLoop(input, sql, { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }, telemetry);
+        telemetry.complete("COMPLETED");
         
         console.log(`[INPUT]: ${step.text}`);
         console.log(`[OUTPUT]: ${result.responseText}`);
-        console.log(`[STATS]: Latency: ${latency}ms | Type: ${result.responseType}`);
+        console.log(`[TRACE]: ${trace.traceId}`);
         
         if (step.delayMs) await new Promise(r => setTimeout(r, step.delayMs));
       } catch (err) {
+        telemetry.record("CHAOS_STEP_FAILED", { error: String(err) });
+        telemetry.complete("FAILED");
         console.error(`❌ CRASH IN STEP: ${step.text}`, err);
       }
     }
@@ -85,5 +89,4 @@ export async function runChaosSimulation() {
   console.log("\n✅ CHAOS SIMULATION COMPLETE.");
 }
 
-// Auto-run
 runChaosSimulation().catch(console.error);

@@ -1,18 +1,13 @@
-/**
- * api/debug-loop.ts — Internal execution trace endpoint.
- *
- * INTENT: Expose the full staff loop execution path without WhatsApp delivery.
- * Allows operators to inspect CHIOMA's cognition and decision chain.
- * Protected: requires CHIOMA_ADMIN_SECRET header.
- *
- * SIDE EFFECT: Supabase read + LLM call. Why: operator debugging only.
- */
 import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient } from "../../../infrastructure/database/index.js";
 import { runAtomicStaffLoop } from "../../../core/staff-loop/atomic-runner.js";
+import { TelemetryManager, createTraceContext } from "../../../core/telemetry/index.js";
 import { randomUUID } from "node:crypto";
 
 export default async function handler(req: any, res: any) {
+  const workerId = `worker_debug_${process.env.VERCEL_REGION || "local"}`;
+  const trace = createTraceContext(workerId);
+
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   const adminSecret = process.env.CHIOMA_ADMIN_SECRET;
@@ -36,6 +31,9 @@ export default async function handler(req: any, res: any) {
   const eventId = randomUUID();
   const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
+  const telemetry = new TelemetryManager(messageId, trace.traceId);
+  telemetry.record("DEBUG_LOOP_STARTED", { tenantId, from, traceId: trace.traceId });
+
   // Ensure ledger row exists for atomic runner
   try {
     await sql`
@@ -49,7 +47,6 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const start = Date.now();
     const result = await runAtomicStaffLoop(
       {
         messageId,
@@ -60,20 +57,27 @@ export default async function handler(req: any, res: any) {
         causationId: eventId,
         eventId,
         channel: "simulation",
+        traceContext: trace,
       },
       sql,
-      { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
+      { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER },
+      telemetry
     );
+
+    telemetry.complete("COMPLETED");
 
     return res.status(200).json({
       ok: true,
-      latencyMs: Date.now() - start,
+      traceId: trace.traceId,
+      timeline: telemetry.getTimeline(),
       responseText: result.responseText,
       responseType: result.responseType,
       decision: result.decision ?? null,
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, error: String(err) });
+    telemetry.record("DEBUG_LOOP_FAILED", { error: String(err) });
+    telemetry.complete("FAILED");
+    return res.status(500).json({ ok: false, error: String(err), timeline: telemetry.getTimeline() });
   } finally {
     await sql.end();
   }

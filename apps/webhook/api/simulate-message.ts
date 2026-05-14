@@ -2,17 +2,16 @@ import { randomUUID } from "node:crypto";
 import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient, commitEvent } from "../../../infrastructure/database/index.js";
 import { runAtomicStaffLoop } from "../../../core/staff-loop/atomic-runner.js";
+import { TelemetryManager, createTraceContext } from "../../../core/telemetry/index.js";
 
 /**
  * api/simulate-message.ts — Dev simulation endpoint.
- *
- * All imports STATIC — dynamic import of atomic-runner was causing silent
- * failures in Vercel's bundler (module not resolved at bundle time).
  */
 
 export default async function handler(req: any, res: any) {
-  const start = Date.now();
-
+  const workerId = `worker_sim_${process.env.VERCEL_REGION || "local"}`;
+  const trace = createTraceContext(workerId);
+  
   try {
     const config = validateConfig();
 
@@ -27,12 +26,13 @@ export default async function handler(req: any, res: any) {
     const correlationId = `corr_${messageId}`;
     const causationId = `root_${eventId}`;
 
-    console.log("[SIMULATION] START", { tenantId: normalisedTenantId, from, text });
+    const telemetry = new TelemetryManager(messageId, trace.traceId);
+    telemetry.record("SIMULATION_STARTED", { tenantId: normalisedTenantId, from, traceId: trace.traceId });
 
     const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
     try {
-      // Ensure ledger row so atomic-runner can update it
+      // Ensure ledger row
       await sql`
         INSERT INTO message_ledger (message_id, tenant_id, status)
         VALUES (${messageId}, ${normalisedTenantId}, 'RECEIVED')
@@ -48,7 +48,7 @@ export default async function handler(req: any, res: any) {
         causationId,
       });
 
-      console.log("[SIMULATION] CALLING_ATOMIC_STAFF_LOOP");
+      telemetry.record("LEDGER_WRITTEN", { status: "INSERTED" });
 
       const result = await runAtomicStaffLoop(
         {
@@ -60,24 +60,27 @@ export default async function handler(req: any, res: any) {
           causationId,
           eventId,
           channel: "simulation",
+          traceContext: trace,
         },
         sql,
-        { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
+        { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER },
+        telemetry
       );
 
-      console.log("[SIMULATION] SUCCESS", { responseType: result.responseType });
+      telemetry.complete("COMPLETED");
 
       return res.status(200).json({
         ok: true,
         correlationId,
         response: result.responseText,
         responseType: result.responseType,
-        latencyMs: Date.now() - start,
+        traceId: trace.traceId,
       });
 
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error("[SIMULATION] INNER_ERROR", msg);
+      telemetry.record("SIMULATION_FAILED", { error: msg });
+      telemetry.complete("FAILED");
       return res.status(200).json({ ok: false, error: msg });
     } finally {
       await sql.end();
@@ -85,7 +88,6 @@ export default async function handler(req: any, res: any) {
 
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[SIMULATION] OUTER_ERROR", msg);
     return res.status(200).json({ ok: false, error: msg });
   }
 }

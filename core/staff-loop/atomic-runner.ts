@@ -8,23 +8,24 @@ import { evaluateEmployeePerformance } from "../staff-rules/performance-scorer.j
 import { enforceEmployeePsychology } from "../staff-rules/behavioral-enforcer.js";
 import { processOnboardingStep } from "../../services/onboarding-service/index.js";
 import { StaffLoopInput, StaffLoopResult, EmployabilityProfile } from "../contracts/index.js";
-
+import { TelemetryManager } from "../telemetry/index.js";
 import { acquireLease, releaseLease } from "../concurrency/index.js";
 
 export async function runAtomicStaffLoop(
   input: StaffLoopInput,
   sql: any,
-  config: { apiKey: string; provider: string }
+  config: { apiKey: string; provider: string },
+  telemetry: TelemetryManager
 ): Promise<StaffLoopResult> {
   const start = Date.now();
   const aggregateId = `conv_${input.senderPhone}`;
   const correlationId = input.correlationId;
-  const workerId = `worker_${process.env.VERCEL_REGION || "local"}`;
+  const workerId = input.traceContext.workerId;
 
   // Acquire concurrency lease with fencing token
   const lease = await acquireLease(sql, aggregateId, workerId);
   if (!lease) {
-    console.log(`[CONCURRENCY_GATE] Aggregate ${aggregateId} is locked by another worker.`);
+    telemetry.record("CONCURRENCY_GATE_LOCKED", { aggregateId });
     return {
       responseText: "I'm already working on your request. Just a moment!",
       responseType: "conversation",
@@ -33,6 +34,7 @@ export async function runAtomicStaffLoop(
       correlationId: correlationId,
     };
   }
+  telemetry.record("EXECUTION_LEASE_ACQUIRED", { fencingToken: lease.fencingToken });
 
   try {
     const result = await sql.begin(async (tx: any) => {
@@ -46,7 +48,7 @@ export async function runAtomicStaffLoop(
         WHERE message_id = ${input.messageId}
       `;
 
-      // Onboarding Bypass (Legacy support for now, but wrapped in transition safety)
+      // Onboarding Bypass
       const onboarding = await processOnboardingStep(tx, input.tenantId, input.messageText);
       if (!onboarding.completed) {
         await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
@@ -65,12 +67,18 @@ export async function runAtomicStaffLoop(
       `;
       if (!profile) throw new Error("STATE_INCONSISTENCY: Onboarding complete but profile missing.");
 
-      // 2. PROPOSED Stage
+      // 2. PROPOSED Stage (Inference)
       assertLegalTransition("LEDGERED", "PROPOSED");
+      telemetry.record("INFERENCE_STARTED", { provider: config.provider });
       const loopResult = await runStaffLoop(input, tx, config, profile);
+      telemetry.record("INFERENCE_COMPLETED", { latencyMs: loopResult.latencyMs });
+      
       if (!loopResult.decision) throw new Error("COGNITION_FAILURE: LLM failed to produce a decision.");
 
+      telemetry.record("CONSTITUTION_VALIDATED");
       const audit = enforceEmployeePsychology(loopResult.decision.response_payload);
+      telemetry.record("BEHAVIORAL_ENFORCER_PASSED", { violations: audit.violations.length });
+      
       const evaluation = evaluateEmployeePerformance(loopResult.decision, audit, loopResult.latencyMs);
 
       const seq = await getNextSequenceNumber(tx, aggregateId);
@@ -103,11 +111,11 @@ export async function runAtomicStaffLoop(
       };
       proposalEvent.contentHash = buildContentHash(proposalEvent.payload);
       await appendEvent(tx, proposalEvent);
+      telemetry.record("DECISION_COMPILED", { decisionId: loopResult.decision.decision_hash });
 
       // 3. VALIDATED Stage
       assertLegalTransition("PROPOSED", "VALIDATED");
       const compiler = new DecisionCompiler();
-      // Map legacy decision to new proposal format for compiler
       const proposal = {
         proposalId: loopResult.decision.decision_hash,
         intents: [{ intent: "INFORM" as const, confidence: loopResult.decision.confidence }],
@@ -148,8 +156,9 @@ export async function runAtomicStaffLoop(
       };
       planEvent.contentHash = buildContentHash(planEvent.payload);
       await appendEvent(tx, planEvent);
+      telemetry.record("EVENT_COMMITTED", { type: planEvent.type });
 
-      // 4. COMMITTED & EXECUTED Stages (Atomic for the bootstrap worker)
+      // 4. COMMITTED & EXECUTED Stages
       assertLegalTransition("VALIDATED", "COMMITTED");
       assertLegalTransition("COMMITTED", "EXECUTED");
 
@@ -198,7 +207,7 @@ export async function runAtomicStaffLoop(
   } catch (err: any) {
     if (lease) await releaseLease(sql, aggregateId, workerId, lease.fencingToken);
     const failure = classify(err);
-    console.error(`[ATOMIC_RUNNER] [${failure.class}] ${err.message}`);
+    telemetry.record("EXECUTION_FAILED", { class: failure.class, message: err.message });
 
     await sql.begin(async (tx: any) => {
       await tx`
@@ -217,12 +226,4 @@ export async function runAtomicStaffLoop(
       correlationId: correlationId,
     };
   }
-
-  return {
-    responseText: "System in indeterminate state. Please retry.",
-    responseType: "error_degraded",
-    delivered: false,
-    latencyMs: Date.now() - start,
-    correlationId: correlationId,
-  };
 }

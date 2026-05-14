@@ -1,3 +1,5 @@
+import { TraceContext } from "./telemetry.js";
+
 export interface StaffLoopInput {
   messageId: string;
   tenantId: string;
@@ -7,6 +9,7 @@ export interface StaffLoopInput {
   causationId: string;
   eventId: string;
   channel: "whatsapp" | "simulation";
+  traceContext: TraceContext;
 }
 
 export interface StaffLoopResult {

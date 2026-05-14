@@ -3,72 +3,57 @@ import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient } from "../../../infrastructure/database/index.js";
 import { runAtomicStaffLoop } from "../../../core/staff-loop/atomic-runner.js";
 import { sendWhatsAppMessage } from "../../../infrastructure/whatsapp/index.js";
+import { TelemetryManager, createTraceContext } from "../../../core/telemetry/index.js";
 
 /**
  * api/webhook.ts — WhatsApp Cloud API inbound handler.
- *
- * All imports are STATIC. Dynamic imports were causing silent failures in
- * Vercel's esbuild bundler — modules not resolved at bundle time failed
- * silently at runtime after LEDGER_LOCKED with no logged error.
  */
 
 export default async function handler(req: any, res: any) {
-  const start = Date.now();
-  const l = (m: string) => console.log(`[WEBHOOK] [${Date.now() - start}ms] ${m}`);
-
-  l("REQUEST_RECEIVED");
-
+  const workerId = `worker_${process.env.VERCEL_REGION || "local"}`;
+  const trace = createTraceContext(workerId);
+  
   // GET: WhatsApp webhook verification challenge
   if (req.method === "GET") {
     const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
     if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === verifyToken) {
-      l("VERIFICATION_CHALLENGE_OK");
       return res.status(200).send(req.query["hub.challenge"]);
     }
-    l("VERIFICATION_CHALLENGE_REJECTED");
     return res.status(403).send("Forbidden");
   }
 
-  l("BEFORE_METHOD_CHECK");
   if (req.method !== "POST") {
-    l("METHOD_NOT_POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
-  l("METHOD_IS_POST");
+
+  // Extract message ID early for telemetry if possible
+  const entry = req.body?.entry?.[0];
+  const value = entry?.changes?.[0]?.value;
+  const messages = value?.messages;
+  const messageId = messages?.[0]?.id || "unknown";
+
+  const telemetry = new TelemetryManager(messageId, trace.traceId);
+  telemetry.record("REQUEST_RECEIVED", { method: req.method, traceId: trace.traceId, executionId: trace.executionId });
 
   try {
-    l("VALIDATING_CONFIG_START");
     const config = validateConfig();
-    l("CONFIG_VALIDATED");
 
     const signature = req.headers["x-hub-signature-256"] as string;
     const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
 
-    const hasSignature = !!signature;
-    const hasSecret = !!config.WHATSAPP_APP_SECRET;
-    l(`SIGNATURE_CHECK: has_sig=${hasSignature} has_secret=${hasSecret}`);
-
     if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "")) {
-      l("INVALID_SIGNATURE");
+      telemetry.record("INVALID_SIGNATURE");
       return res.status(401).json({ error: "Invalid signature" });
     }
-    l("SIGNATURE_VALID");
-
-    const entry = req.body?.entry?.[0];
-    const value = entry?.changes?.[0]?.value;
-    const messages = value?.messages;
 
     if (!messages || messages.length === 0) {
-      l("NO_MESSAGES: ignored");
+      telemetry.record("NO_MESSAGES_IGNORED");
       return res.status(200).json({ ok: true, ignored: true });
     }
 
     const message = messages[0];
     const from = message.from as string;
     const text = (message.text?.body as string) || "";
-    const messageId = message.id as string;
-
-    l(`IDEMPOTENCY_INIT: ${messageId}`);
 
     const tenantId = `tenant_${value.metadata?.phone_number_id || "default"}`;
     const correlationId = `corr_${messageId}`;
@@ -83,12 +68,12 @@ export default async function handler(req: any, res: any) {
 
       if (existing) {
         if (existing.status === "COMPLETED") {
-          l("LEDGER_BLOCK: COMPLETED");
+          telemetry.record("LEDGER_BLOCK", { reason: "COMPLETED" });
           return res.status(200).json({ ok: true, duplicate: true });
         }
         const lastUpdate = new Date(existing.updated_at).getTime();
         if (existing.status === "PROCESSING" && Date.now() - lastUpdate < 30000) {
-          l("LEDGER_BLOCK: IN_PROGRESS");
+          telemetry.record("LEDGER_BLOCK", { reason: "IN_PROGRESS" });
           return res.status(200).json({ ok: true, retry_ignored: true });
         }
         await sql`
@@ -101,7 +86,7 @@ export default async function handler(req: any, res: any) {
           VALUES (${messageId}, ${tenantId}, 'RECEIVED')
         `;
       }
-      l("LEDGER_LOCKED");
+      telemetry.record("LEDGER_WRITTEN", { status: existing ? "UPDATED" : "INSERTED" });
 
       // ── Execute staff loop ─────────────────────────────────────────────
       const eventId = randomUUID();
@@ -114,40 +99,37 @@ export default async function handler(req: any, res: any) {
         causationId: eventId,
         eventId,
         channel: "whatsapp" as const,
+        traceContext: trace,
       };
 
-      l("INVOKING_ATOMIC_STAFF_LOOP");
+      telemetry.record("STAFF_LOOP_STARTED");
       const result = await runAtomicStaffLoop(staffLoopInput, sql, {
         apiKey: config.LLM_API_KEY,
         provider: config.LLM_PROVIDER,
-      });
-      l(`STAFF_LOOP_DONE: type=${result.responseType} latency=${result.latencyMs}ms`);
-
+      }, telemetry);
+      
       // ── Deliver response via WhatsApp ──────────────────────────────────
       if (result.responseText) {
         const phoneNumberId = value.metadata?.phone_number_id as string | undefined;
         if (phoneNumberId) {
-          l("WHATSAPP_DISPATCH_START");
+          telemetry.record("SIDE_EFFECT_QUEUED", { effectType: "WHATSAPP_MESSAGE" });
           try {
             await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText);
-            l("WHATSAPP_DISPATCH_SUCCESS");
+            telemetry.record("SIDE_EFFECT_EXECUTED", { effectType: "WHATSAPP_MESSAGE", status: "SUCCESS" });
           } catch (waErr: unknown) {
             const msg = waErr instanceof Error ? waErr.message : String(waErr);
-            console.error(`[WEBHOOK] WHATSAPP_DISPATCH_FAILED: ${msg}`);
+            telemetry.record("SIDE_EFFECT_EXECUTED", { effectType: "WHATSAPP_MESSAGE", status: "FAILED", error: msg });
           }
-        } else {
-          l("WHATSAPP_DISPATCH_SKIPPED: no phone_number_id");
         }
       }
 
-      l("LIFECYCLE_COMPLETE");
+      telemetry.complete("COMPLETED");
       return res.status(200).json({ ok: true });
 
     } catch (innerErr: unknown) {
       const msg = innerErr instanceof Error ? innerErr.message : String(innerErr);
-      const stack = innerErr instanceof Error ? innerErr.stack : undefined;
-      console.error(`[WEBHOOK] INNER_SHELL_FAILURE: ${msg}`);
-      if (stack) console.error(`[WEBHOOK] STACK: ${stack}`);
+      telemetry.record("EXECUTION_FAILED", { error: msg });
+      telemetry.complete("FAILED");
       return res.status(200).json({ ok: false, stage: "processing", error: msg });
     } finally {
       await sql.end();
@@ -155,7 +137,8 @@ export default async function handler(req: any, res: any) {
 
   } catch (outerErr: unknown) {
     const msg = outerErr instanceof Error ? outerErr.message : String(outerErr);
-    console.error(`[WEBHOOK] OUTER_SHELL_FAILURE: ${msg}`);
+    telemetry.record("INGRESS_FAILED", { error: msg });
+    telemetry.complete("FAILED");
     return res.status(200).json({ ok: false, stage: "ingress", error: msg });
   }
 }
