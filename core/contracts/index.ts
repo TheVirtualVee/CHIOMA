@@ -52,6 +52,7 @@ export interface BusinessDraft {
 export interface ProposedStaffDecision {
   response: string;
   customer_need: string;
+  intent_type: "SALES" | "SUPPORT" | "COMPLAINT" | "INQUIRY" | "UNKNOWN";
   suggested_action: StaffAction;
   confidence: number;
 }

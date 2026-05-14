@@ -47,7 +47,7 @@ export async function runStaffLoop(
     const { sanitizedReply, actionOverride } = sanitizeStaffReply(proposed.response, facts);
 
     const decision: StaffDecision = {
-      intent_type: "UNKNOWN",
+      intent_type: proposed.intent_type,
       confidence: proposed.confidence,
       response_payload: sanitizedReply,
       required_actions: [actionOverride ? { ...validatedAction, type: actionOverride, urgency: "HIGH" } : validatedAction],

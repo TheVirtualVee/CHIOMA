@@ -11,12 +11,9 @@ export async function runAtomicStaffLoop(
   config: { apiKey: string; provider: string }
 ): Promise<StaffLoopResult> {
   const start = Date.now();
-  const l = (m: string) => console.log(`[ATOMIC_RUNNER] [${Date.now() - start}ms] ${m}`);
 
   try {
     const result = await sql.begin(async (tx: any) => {
-      l("TRANSACTION_START");
-
       await tx`
         UPDATE message_ledger 
         SET status = 'PROCESSING', 
@@ -28,7 +25,6 @@ export async function runAtomicStaffLoop(
       const onboarding = await processOnboardingStep(tx, input.tenantId, input.messageText);
       if (!onboarding.completed) {
         await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
-        l("ONBOARDING_IN_PROGRESS_FINALIZED");
         return {
           responseText: onboarding.response,
           responseType: "onboarding",
@@ -43,9 +39,7 @@ export async function runAtomicStaffLoop(
         FROM employer_profiles WHERE tenant_id = ${input.tenantId}
       `;
 
-      if (!profile) {
-        throw new Error("STATE_INCONSISTENCY: Onboarding marked completed but profile missing.");
-      }
+      if (!profile) throw new Error("STATE_INCONSISTENCY: Onboarding complete but profile missing.");
 
       const existingEvent = await tx`
         SELECT payload FROM core.events 
@@ -57,7 +51,6 @@ export async function runAtomicStaffLoop(
       let loopResult: StaffLoopResult;
 
       if (existingEvent.length > 0) {
-        l("REPLAY_DETERMINISM_HIT");
         const cached = existingEvent[0].payload;
         loopResult = {
           responseText: cached.response_payload || cached.text,
@@ -68,10 +61,16 @@ export async function runAtomicStaffLoop(
           decision: { ...cached, source: "REPLAY" }
         };
       } else {
-        l("COGNITION_LOOP_START");
         loopResult = await runStaffLoop(input, tx, config, profile);
         
         if (loopResult.decision) {
+          if (loopResult.decision.confidence < 0.7) {
+            await tx`
+              INSERT INTO failure_logs (message_id, tenant_id, input_text, actual_behavior, failure_type)
+              VALUES (${input.messageId}, ${input.tenantId}, ${input.messageText}, ${tx.json(loopResult.decision)}, 'LOW_CONFIDENCE')
+            `;
+          }
+
           await commitEvent(tx, {
             id: randomUUID(),
             type: "STAFF_ACTION_TAKEN",
@@ -84,18 +83,13 @@ export async function runAtomicStaffLoop(
       }
 
       if (loopResult.decision) {
-        l("SIDE_EFFECTS_START");
         await executeStaffDecision(tx, input.tenantId, input.senderPhone, loopResult.decision, input.correlationId);
       }
 
       await tx`
-        UPDATE message_ledger 
-        SET status = 'COMPLETED', 
-            updated_at = NOW() 
-        WHERE message_id = ${input.messageId}
+        UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}
       `;
 
-      l("TRANSACTION_COMMIT");
       return loopResult;
     });
 
@@ -103,13 +97,15 @@ export async function runAtomicStaffLoop(
 
   } catch (error: any) {
     console.error(`[ATOMIC_RUNNER] TRANSACTION_FAILURE: ${error.message}`);
+    
+    await sql`
+      INSERT INTO failure_logs (message_id, tenant_id, input_text, failure_type, metadata)
+      VALUES (${input.messageId}, ${input.tenantId}, ${input.messageText}, 'LOGIC_ERROR', ${sql.json({ error: error.message })})
+    `;
+
     try {
       await sql`
-        UPDATE message_ledger 
-        SET status = 'FAILED', 
-            last_error = ${error.message},
-            updated_at = NOW() 
-        WHERE message_id = ${input.messageId}
+        UPDATE message_ledger SET status = 'FAILED', last_error = ${error.message}, updated_at = NOW() WHERE message_id = ${input.messageId}
       `;
     } catch (ledgerErr) {}
 
