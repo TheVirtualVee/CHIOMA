@@ -6,5 +6,9 @@
   "exports": {
     "./contracts": "./contracts/index.ts",
     "./staff-loop": "./staff-loop/index.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^24.0.0"
   }
 }
