@@ -127,7 +127,8 @@ function buildDegradedResponse(message: string, metrics: InferenceMetrics): Prop
 export async function generateStaffReply(
   message: string,
   businessBrief: string,
-  profile: EmployabilityProfile
+  profile: EmployabilityProfile,
+  config?: { apiKey: string; provider: string }
 ): Promise<ProposedStaffDecision> {
   const systemContract = buildSystemContract(profile, businessBrief);
   const metrics: InferenceMetrics = {
@@ -148,7 +149,7 @@ export async function generateStaffReply(
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${process.env.LLM_API_KEY}`,
+            Authorization: `Bearer ${config?.apiKey || process.env.LLM_API_KEY}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({

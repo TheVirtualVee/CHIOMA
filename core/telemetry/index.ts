@@ -26,8 +26,13 @@ export class TelemetryManager {
     };
     this.timeline.stages.push(event);
     
-    // Immediate log for real-time tailing
-    console.log(`[TELEMETRY] [${this.timeline.traceId}] [${event.elapsedMs}ms] ${stage}${metadata ? ' ' + JSON.stringify(metadata) : ''}`);
+    // Immediate log for real-time tailing — wrapped to ensure zero-halt
+    try {
+      const metaStr = metadata ? ` ${JSON.stringify(metadata, (_, v) => typeof v === 'bigint' ? v.toString() : v)}` : '';
+      console.log(`[TELEMETRY] [${this.timeline.traceId}] [${event.elapsedMs}ms] ${stage}${metaStr}`);
+    } catch (err) {
+      console.log(`[TELEMETRY] [${this.timeline.traceId}] [${event.elapsedMs}ms] ${stage} (metadata-log-failed)`);
+    }
   }
 
   complete(state: ExecutionState) {

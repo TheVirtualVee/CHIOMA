@@ -37,7 +37,7 @@ export async function runStaffLoop(
     ].join("\n");
 
     t("LLM_INVOCATION_START");
-    const proposed = await generateStaffReply(input.messageText, businessBrief, profile);
+    const proposed = await generateStaffReply(input.messageText, businessBrief, profile, config);
     
     const validatedAction = validateStaffAction(
       { 

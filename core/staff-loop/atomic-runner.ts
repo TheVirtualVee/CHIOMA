@@ -21,6 +21,7 @@ export async function runAtomicStaffLoop(
   const aggregateId = `conv_${input.senderPhone}`;
   const correlationId = input.correlationId;
   const workerId = input.traceContext.workerId;
+  telemetry.record("ATOMIC_RUNNER_STARTED", { aggregateId, correlationId });
 
   // Acquire concurrency lease with fencing token
   const lease = await acquireLease(sql, aggregateId, workerId);
