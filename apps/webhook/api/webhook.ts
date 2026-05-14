@@ -7,11 +7,11 @@ import { runStaffLoop } from "../../../core/staff-loop/index.js";
  * api/webhook.ts
  *
  * CHIOMA WhatsApp Webhook Handler.
- * FINAL WIRING FIX — Ensuring single entrypoint and direct async execution.
+ * INGRESS INSTRUMENTATION BUILD — tracking Meta payload structure.
  */
 
 export default async function handler(req: any, res: any) {
-  console.error("[WEBHOOK] REQUEST_RECEIVED");
+  console.error("[WEBHOOK] REQUEST_RECEIVED", { method: req.method });
 
   if (req.method === "GET") {
     const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
@@ -29,16 +29,34 @@ export default async function handler(req: any, res: any) {
     // Validate signature
     const signature = req.headers["x-hub-signature-256"];
     const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+    
+    console.error("[WEBHOOK] PAYLOAD_PREVIEW", { 
+      hasBody: !!req.body,
+      bodyType: typeof req.body,
+      hasEntry: !!req.body?.entry,
+      entryLen: req.body?.entry?.length
+    });
+
     if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "")) {
-      console.log("[WEBHOOK] INVALID_SIGNATURE");
+      console.error("[WEBHOOK] INVALID_SIGNATURE_FAIL");
       return res.status(401).json({ error: "Invalid signature" });
     }
 
     const entry = req.body?.entry?.[0];
-    const value = entry?.changes?.[0]?.value;
+    const change = entry?.changes?.[0];
+    const value = change?.value;
     const messages = value?.messages;
+    const statuses = value?.statuses;
+
+    console.error("[WEBHOOK] EVENT_CLASSIFICATION", { 
+      hasMessages: !!messages,
+      msgCount: messages?.length,
+      hasStatuses: !!statuses,
+      field: change?.field
+    });
 
     if (!messages || messages.length === 0) {
+      console.error("[WEBHOOK] EXIT_NON_MESSAGE_EVENT");
       return res.status(200).json({ ok: true, ignored: true });
     }
 
@@ -47,7 +65,7 @@ export default async function handler(req: any, res: any) {
     const text = message.text?.body || "";
     const messageId = message.id;
 
-    console.log("[WEBHOOK] PROCESSING_MESSAGE", { from, text });
+    console.error("[WEBHOOK] PROCESSING_MESSAGE", { from, text, messageId });
 
     const tenantId = `tenant_${value.metadata?.phone_number_id || "default"}`;
     const correlationId = `corr_${messageId}`;
@@ -55,15 +73,15 @@ export default async function handler(req: any, res: any) {
     const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
     try {
-      // 1. Idempotency Check
       const [existing] = await sql`SELECT message_id FROM processed_messages WHERE message_id = ${messageId}`;
       if (existing) {
-        console.log("[WEBHOOK] DUPLICATE_SKIP", { messageId });
+        console.error("[WEBHOOK] DUPLICATE_SKIP", { messageId });
         return res.status(200).json({ ok: true, duplicate: true });
       }
 
-      // 2. Commit Ingress Event
       const eventId = randomUUID();
+      console.error("[WEBHOOK] COMMITTING_INGRESS_EVENT", { eventId });
+      
       await sql.begin(async (tx: any) => {
         await tx`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
         await commitEvent(tx, {
@@ -76,43 +94,41 @@ export default async function handler(req: any, res: any) {
         });
       });
 
-      console.log("[WEBHOOK] CALLING_RUNSTAFFLOOP");
+      console.error("[WEBHOOK] CALLING_RUNSTAFFLOOP");
       
-      // 3. EXECUTE STAFF LOOP
       const result = await runStaffLoop(
         { tenantId, senderPhone: from, messageText: text, correlationId, causationId: eventId, eventId, channel: "whatsapp" },
         sql,
         { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
       );
 
-      console.log("[WEBHOOK] STAFF_LOOP_DONE", { responseType: result.responseType });
+      console.error("[WEBHOOK] STAFF_LOOP_DONE", { responseType: result.responseType });
 
-      // 4. SEND REPLY
       if (result.responseText) {
         const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
         const phoneNumberId = value.metadata?.phone_number_id;
         
         if (phoneNumberId) {
-          console.log("[WEBHOOK] SENDING_WHATSAPP_REPLY", { to: from });
+          console.error("[WEBHOOK] SENDING_WHATSAPP_REPLY", { to: from });
           await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText);
-          console.log("[WEBHOOK] REPLY_SENT_SUCCESS");
+          console.error("[WEBHOOK] REPLY_SENT_SUCCESS");
         } else {
-          console.log("[WEBHOOK] MISSING_PHONE_NUMBER_ID");
+          console.error("[WEBHOOK] MISSING_PHONE_NUMBER_ID");
         }
       }
 
-      console.log("[WEBHOOK] FLOW_COMPLETED");
+      console.error("[WEBHOOK] FLOW_COMPLETED_OK");
       return res.status(200).json({ ok: true });
 
     } catch (err) {
-      console.error("[WEBHOOK] INNER_ERROR", err);
+      console.error("[WEBHOOK] INNER_ERROR_FATAL", err);
       return res.status(200).json({ ok: false, error: String(err) });
     } finally {
       await sql.end();
     }
 
   } catch (err) {
-    console.error("[WEBHOOK] OUTER_ERROR", err);
+    console.error("[WEBHOOK] OUTER_ERROR_FATAL", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 }
