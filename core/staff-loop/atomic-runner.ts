@@ -4,7 +4,7 @@ import { appendEvent, getNextSequenceNumber, buildContentHash } from "../events/
 import { DecisionCompiler } from "../llm/index.js";
 import { classify, compensate } from "../failures/index.js";
 import { assertLegalTransition, validateInvariants } from "../kernel/index.js";
-import { scoreEmployeePerformance } from "../staff-rules/performance-scorer.js";
+import { evaluateEmployeePerformance } from "../staff-rules/performance-scorer.js";
 import { enforceEmployeePsychology } from "../staff-rules/behavioral-enforcer.js";
 import { processOnboardingStep } from "../../services/onboarding-service/index.js";
 import { StaffLoopInput, StaffLoopResult, EmployabilityProfile } from "../contracts/index.js";
@@ -71,7 +71,7 @@ export async function runAtomicStaffLoop(
       if (!loopResult.decision) throw new Error("COGNITION_FAILURE: LLM failed to produce a decision.");
 
       const audit = enforceEmployeePsychology(loopResult.decision.response_payload);
-      const score = scoreEmployeePerformance(loopResult.decision, audit, loopResult.latencyMs);
+      const evaluation = evaluateEmployeePerformance(loopResult.decision, audit, loopResult.latencyMs);
 
       const seq = await getNextSequenceNumber(tx, aggregateId);
       
@@ -92,9 +92,11 @@ export async function runAtomicStaffLoop(
           promptVersion: "staff-v2",
           inferenceLatencyMs: loopResult.latencyMs,
           confidenceScore: loopResult.decision.confidence,
-          performanceScore: score.overallScore,
-          performanceGrade: score.grade,
-          behavioralFlags: score.flags,
+          performanceScore: evaluation.overallScore,
+          performanceGrade: evaluation.grade,
+          behavioralFlags: audit.violations.map(v => v.rule),
+          lawViolations: evaluation.lawViolations,
+          operationalFlags: evaluation.operationalFlags,
           proposal: loopResult.decision
         },
         contentHash: ""

@@ -1,3 +1,5 @@
+import { CHIOMA_CONSTITUTION } from "./constitution.js";
+
 export interface BehavioralAuditResult {
   passed: boolean;
   originalResponse: string;
@@ -146,10 +148,15 @@ export function enforceEmployeePsychology(response: string): BehavioralAuditResu
   corrected = corrected.replace(/\s{2,}/g, " ").trim();
 
   const blockViolations = violations.filter(v => v.severity === "BLOCK");
-  const score = Math.max(0, 1.0 - (violations.length * 0.1) - (blockViolations.length * 0.3));
+  
+  // LAW_001: IDENTITY_ERASURE FATAL PENALTY
+  const identityBreach = violations.some(v => v.rule === "IDENTITY_BREACH");
+  const scoreBase = identityBreach ? 0.1 : 1.0;
+
+  const score = Math.max(0, scoreBase - (violations.length * 0.1) - (blockViolations.length * 0.3));
 
   return {
-    passed: blockViolations.length === 0,
+    passed: blockViolations.length === 0 && !identityBreach,
     originalResponse: response,
     correctedResponse: corrected,
     violations,

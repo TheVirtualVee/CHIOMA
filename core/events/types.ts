@@ -33,6 +33,8 @@ export interface ProposalGeneratedEvent extends BaseEvent {
     performanceScore: number;
     performanceGrade: string;
     behavioralFlags: string[];
+    lawViolations: string[];
+    operationalFlags: string[];
     proposal: unknown;
   };
 }
