@@ -33,8 +33,7 @@ export default async function handler(req: any, res: any) {
 
   if (req.method === "POST") {
     console.log("[WEBHOOK] REQUEST_RECEIVED");
-    console.log("[WEBHOOK] METHOD", req.method);
-    console.log("[WEBHOOK] BODY", JSON.stringify(req.body));
+    console.log("[WEBHOOK] RAW_BODY", JSON.stringify(req.body, null, 2));
     console.log("[CONFIG] TOKEN_PRESENT", !!process.env.WHATSAPP_ACCESS_TOKEN);
 
     try {
@@ -48,20 +47,40 @@ export default async function handler(req: any, res: any) {
       console.log("[WEBHOOK] SIGNATURE_VALID");
 
       const body = req.body;
-      const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+      const entry = body?.entry?.[0];
+      const change = entry?.changes?.[0];
+      const value = change?.value;
 
-      if (!message) {
-        console.log("[WEBHOOK] NO_MESSAGES_IN_PAYLOAD", JSON.stringify(body));
-        return res.status(200).send("OK");
+      console.log("[WEBHOOK] STRUCTURE_CHECK", {
+        hasEntry: !!entry,
+        hasChange: !!change,
+        hasValue: !!value,
+        hasMessages: !!value?.messages,
+        hasStatuses: !!value?.statuses,
+        field: change?.field
+      });
+
+      const messages = value?.messages;
+
+      if (!messages || messages.length === 0) {
+        console.log("[WEBHOOK] NON_MESSAGE_EVENT", JSON.stringify(value, null, 2));
+        return res.status(200).json({
+          ok: true,
+          ignored: true,
+          reason: messages ? "EMPTY_MESSAGES" : "NO_MESSAGES"
+        });
       }
 
+      console.log("[WEBHOOK] MESSAGE_PAYLOAD", JSON.stringify(messages, null, 2));
+
+      const message = messages[0];
       const from = message.from;
       const text = message.text?.body || "";
       const messageId = message.id;
 
       console.log("[WEBHOOK] MESSAGE_EXTRACTED", { from, text, messageId });
 
-      const tenantId = `tenant_${body.entry[0].changes[0].value.metadata?.phone_number_id || 'default'}`;
+      const tenantId = `tenant_${value.metadata?.phone_number_id || 'default'}`;
       const correlationId = `corr_${messageId}`;
 
       const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
@@ -102,7 +121,7 @@ export default async function handler(req: any, res: any) {
 
         if (result.responseText) {
           const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
-          const phoneNumberId = body.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
+          const phoneNumberId = value.metadata?.phone_number_id;
           
           if (phoneNumberId) {
             await sendWhatsAppMessage(
