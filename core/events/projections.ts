@@ -1,8 +1,9 @@
-import type { ChiomaEvent, ProjectedState } from "./types.js";
 import { initialState } from "./types.js";
+import type { ChiomaEvent, ProjectedState } from "./types.js";
 import { verifyContentHash, loadEventsAfter } from "./store.js";
 import { exhaustiveCheck } from "../kernel/exhaustive.js";
-import { findNearestSnapshot, type AggregateSnapshot } from "./snapshots.js";
+import { findNearestSnapshot } from "./snapshots.js";
+import type { AggregateSnapshot } from "./snapshots.js";
 
 export function applyEvent(state: ProjectedState, event: ChiomaEvent): ProjectedState {
   switch (event.type) {

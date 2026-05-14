@@ -64,6 +64,6 @@ export interface StaffDecision {
   required_actions: StaffAction[];
   safety_flags: string[];
   source: "LLM" | "RULE_OVERRIDE" | "REPLAY";
-  decision_hash?: string;
+  decision_hash: string;
   customer_need: string;
 }
