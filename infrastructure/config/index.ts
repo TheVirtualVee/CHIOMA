@@ -6,7 +6,7 @@ const ConfigSchema = z.object({
   LLM_PROVIDER: z.enum(["openai", "groq", "openrouter"]).default("openai"),
   WHATSAPP_VERIFY_TOKEN: z.string().min(1),
   WHATSAPP_ACCESS_TOKEN: z.string().min(1),
-  WHATSAPP_APP_SECRET: z.string().optional(),
+  WHATSAPP_APP_SECRET: z.string().min(1),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
 });
 

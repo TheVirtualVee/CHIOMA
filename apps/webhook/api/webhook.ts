@@ -39,10 +39,24 @@ export default async function handler(req: any, res: any) {
     const config = validateConfig();
 
     const signature = req.headers["x-hub-signature-256"] as string;
-    const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+    
+    // 🧠 CRITICAL: Reconstructing JSON from an object is non-deterministic (whitespace/ordering).
+    // We MUST use the raw body if available to match Meta's signature.
+    const rawBody = (req as any).rawBody 
+      ? (req as any).rawBody.toString() 
+      : (typeof req.body === "string" ? req.body : JSON.stringify(req.body));
 
-    if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "")) {
-      telemetry.record("INVALID_SIGNATURE");
+    if (!config.WHATSAPP_APP_SECRET) {
+      telemetry.record("MISSING_WHATSAPP_APP_SECRET");
+      throw new Error("WHATSAPP_APP_SECRET is not configured. Cannot validate signature.");
+    }
+
+    if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET)) {
+      console.warn(`[WEBHOOK] INVALID_SIGNATURE: traceId=${trace.traceId} sig=${signature}`);
+      telemetry.record("INVALID_SIGNATURE", { 
+        providedSignature: signature,
+        bodyPreview: rawBody.slice(0, 100)
+      });
       return res.status(401).json({ error: "Invalid signature" });
     }
 
