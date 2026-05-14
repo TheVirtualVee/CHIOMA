@@ -12,6 +12,8 @@ import { generateStaffReply } from "../../services/response-service/index.js";
 import { commitEvent } from "../../infrastructure/database/index.js";
 import { executeStaffDecision } from "../../services/employment-logic/index.js";
 
+console.log("[STAFF_LOOP] MODULE_LOADED");
+
 /**
  * core/staff-loop/index.ts
  *
@@ -24,6 +26,8 @@ export async function runStaffLoop(
   sql: postgres.Sql,
   config: { apiKey: string; provider: string }
 ): Promise<StaffLoopResult> {
+  console.log("[STAFF_LOOP] FUNCTION_ENTER");
+  
   const start = Date.now();
   const trace: string[] = [];
   const t = (m: string) => { 
