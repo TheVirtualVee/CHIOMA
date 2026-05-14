@@ -1,9 +1,16 @@
-import { initialState } from "./types.js";
-import type { ChiomaEvent, ProjectedState } from "./types.js";
+import { initialState, type ChiomaEvent, type ProjectedState } from "./types.js";
 import { verifyContentHash, loadEventsAfter } from "./store.js";
 import { exhaustiveCheck } from "../kernel/exhaustive.js";
-import { findNearestSnapshot } from "./snapshots.js";
-import type { AggregateSnapshot } from "./snapshots.js";
+
+export type { ProjectedState } from "./types.js";
+export { initialState } from "./types.js";
+
+export interface SnapshotProvider {
+  find(sql: any, aggregateId: string, upToSequence?: number): Promise<{
+    upToSequence: number;
+    state: ProjectedState;
+  } | null>;
+}
 
 export function applyEvent(state: ProjectedState, event: ChiomaEvent): ProjectedState {
   switch (event.type) {
@@ -72,13 +79,12 @@ export function applyEvent(state: ProjectedState, event: ChiomaEvent): Projected
 export async function replayAggregate(
   sql: any,
   aggregateId: string,
+  snapshotProvider?: SnapshotProvider,
   targetSequence?: number
 ): Promise<ProjectedState> {
-  const snapshot: AggregateSnapshot | null = await findNearestSnapshot(
-    sql,
-    aggregateId,
-    targetSequence
-  );
+  const snapshot = snapshotProvider
+    ? await snapshotProvider.find(sql, aggregateId, targetSequence)
+    : null;
 
   const afterSequence = snapshot?.upToSequence ?? 0;
   const events = await loadEventsAfter(sql, aggregateId, afterSequence, targetSequence);

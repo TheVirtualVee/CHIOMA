@@ -6,6 +6,7 @@ import {
   StaffDecision
 } from "../contracts/index.js";
 import { validateStaffAction, sanitizeStaffReply } from "../staff-rules/index.js";
+import { enforceEmployeePsychology } from "../staff-rules/behavioral-enforcer.js";
 import { generateStaffReply } from "../../services/response-service/index.js";
 
 export async function runStaffLoop(
@@ -46,15 +47,26 @@ export async function runStaffLoop(
 
     const { sanitizedReply, actionOverride } = sanitizeStaffReply(proposed.response, facts);
 
+    const behavioralAudit = enforceEmployeePsychology(sanitizedReply);
+    if (behavioralAudit.violations.length > 0) {
+      console.warn(`[BEHAVIORAL_ENFORCER] ${behavioralAudit.violations.length} violations detected (score: ${behavioralAudit.score.toFixed(2)})`);
+      for (const v of behavioralAudit.violations) {
+        console.warn(`  [${v.severity}] ${v.rule}: ${v.detail}`);
+      }
+    }
+
+    const finalReply = behavioralAudit.correctedResponse;
+    const behaviorallyEnforced = !behavioralAudit.passed;
+
     const decision: StaffDecision = {
       intent_type: proposed.intent_type,
-      confidence: proposed.confidence,
-      response_payload: sanitizedReply,
-      required_actions: [actionOverride ? { ...validatedAction, type: actionOverride, urgency: "HIGH" } : validatedAction],
-      safety_flags: [],
+      confidence: behaviorallyEnforced ? Math.min(proposed.confidence, 0.5) : proposed.confidence,
+      response_payload: finalReply,
+      required_actions: [actionOverride || behaviorallyEnforced ? { ...validatedAction, type: behaviorallyEnforced ? "ESCALATE" as const : (actionOverride || validatedAction.type), urgency: "HIGH" } : validatedAction],
+      safety_flags: behavioralAudit.violations.filter(v => v.severity === "BLOCK").map(v => v.rule),
       source: "LLM",
       customer_need: proposed.customer_need,
-      decision_hash: createHash("sha256").update(sanitizedReply + JSON.stringify(validatedAction)).digest("hex")
+      decision_hash: createHash("sha256").update(finalReply + JSON.stringify(validatedAction)).digest("hex")
     };
 
     return {

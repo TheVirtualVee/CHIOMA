@@ -4,8 +4,12 @@ import { appendEvent, getNextSequenceNumber, buildContentHash } from "../events/
 import { DecisionCompiler } from "../llm/index.js";
 import { classify, compensate } from "../failures/index.js";
 import { assertLegalTransition, validateInvariants } from "../kernel/index.js";
+import { scoreEmployeePerformance } from "../staff-rules/performance-scorer.js";
+import { enforceEmployeePsychology } from "../staff-rules/behavioral-enforcer.js";
 import { processOnboardingStep } from "../../services/onboarding-service/index.js";
 import { StaffLoopInput, StaffLoopResult, EmployabilityProfile } from "../contracts/index.js";
+
+import { acquireLease, releaseLease } from "../concurrency/index.js";
 
 export async function runAtomicStaffLoop(
   input: StaffLoopInput,
@@ -15,9 +19,23 @@ export async function runAtomicStaffLoop(
   const start = Date.now();
   const aggregateId = `conv_${input.senderPhone}`;
   const correlationId = input.correlationId;
+  const workerId = `worker_${process.env.VERCEL_REGION || "local"}`;
+
+  // Acquire concurrency lease with fencing token
+  const lease = await acquireLease(sql, aggregateId, workerId);
+  if (!lease) {
+    console.log(`[CONCURRENCY_GATE] Aggregate ${aggregateId} is locked by another worker.`);
+    return {
+      responseText: "I'm already working on your request. Just a moment!",
+      responseType: "conversation",
+      delivered: false,
+      latencyMs: Date.now() - start,
+      correlationId: correlationId,
+    };
+  }
 
   try {
-    return await sql.begin(async (tx: any) => {
+    const result = await sql.begin(async (tx: any) => {
       // 1. LEDGERED Stage
       assertLegalTransition("INGESTED", "LEDGERED");
       await tx`
@@ -52,6 +70,9 @@ export async function runAtomicStaffLoop(
       const loopResult = await runStaffLoop(input, tx, config, profile);
       if (!loopResult.decision) throw new Error("COGNITION_FAILURE: LLM failed to produce a decision.");
 
+      const audit = enforceEmployeePsychology(loopResult.decision.response_payload);
+      const score = scoreEmployeePerformance(loopResult.decision, audit, loopResult.latencyMs);
+
       const seq = await getNextSequenceNumber(tx, aggregateId);
       
       const proposalEvent = {
@@ -68,9 +89,12 @@ export async function runAtomicStaffLoop(
         payload: {
           proposalId: loopResult.decision.decision_hash,
           modelVersion: "llama-3.3-70b",
-          promptVersion: "staff-v1",
+          promptVersion: "staff-v2",
           inferenceLatencyMs: loopResult.latencyMs,
           confidenceScore: loopResult.decision.confidence,
+          performanceScore: score.overallScore,
+          performanceGrade: score.grade,
+          behavioralFlags: score.flags,
           proposal: loopResult.decision
         },
         contentHash: ""
@@ -166,7 +190,11 @@ export async function runAtomicStaffLoop(
       return loopResult;
     });
 
+    await releaseLease(sql, aggregateId, workerId, lease.fencingToken);
+    return result;
+
   } catch (err: any) {
+    if (lease) await releaseLease(sql, aggregateId, workerId, lease.fencingToken);
     const failure = classify(err);
     console.error(`[ATOMIC_RUNNER] [${failure.class}] ${err.message}`);
 
@@ -187,4 +215,12 @@ export async function runAtomicStaffLoop(
       correlationId: correlationId,
     };
   }
+
+  return {
+    responseText: "System in indeterminate state. Please retry.",
+    responseType: "error_degraded",
+    delivered: false,
+    latencyMs: Date.now() - start,
+    correlationId: correlationId,
+  };
 }

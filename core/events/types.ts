@@ -30,6 +30,9 @@ export interface ProposalGeneratedEvent extends BaseEvent {
     promptVersion: string;
     inferenceLatencyMs: number;
     confidenceScore: number;
+    performanceScore: number;
+    performanceGrade: string;
+    behavioralFlags: string[];
     proposal: unknown;
   };
 }

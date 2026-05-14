@@ -8,7 +8,8 @@
     "./staff-loop": "./staff-loop/index.ts",
     "./staff-loop/atomic-runner": "./staff-loop/atomic-runner.ts",
     "./staff-rules": "./staff-rules/index.ts",
-    "./runtime": "./runtime/index.ts"
+    "./runtime": "./runtime/index.ts",
+    "./events": "./events/index.ts"
   },
   "devDependencies": {
     "typescript": "^5.9.0",
