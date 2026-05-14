@@ -1,7 +1,9 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { runStaffLoop } from "./index.js";
-import { commitEvent } from "../../infrastructure/database/index.js";
-import { executeStaffDecision } from "../../services/employment-logic/index.js";
+import { appendEvent, getNextSequenceNumber, buildContentHash } from "../events/index.js";
+import { DecisionCompiler } from "../llm/index.js";
+import { classify, compensate } from "../failures/index.js";
+import { assertLegalTransition, validateInvariants } from "../kernel/index.js";
 import { processOnboardingStep } from "../../services/onboarding-service/index.js";
 import { StaffLoopInput, StaffLoopResult, EmployabilityProfile } from "../contracts/index.js";
 
@@ -11,9 +13,13 @@ export async function runAtomicStaffLoop(
   config: { apiKey: string; provider: string }
 ): Promise<StaffLoopResult> {
   const start = Date.now();
+  const aggregateId = `conv_${input.senderPhone}`;
+  const correlationId = input.correlationId;
 
   try {
-    const result = await sql.begin(async (tx: any) => {
+    return await sql.begin(async (tx: any) => {
+      // 1. LEDGERED Stage
+      assertLegalTransition("INGESTED", "LEDGERED");
       await tx`
         UPDATE message_ledger 
         SET status = 'PROCESSING', 
@@ -22,6 +28,7 @@ export async function runAtomicStaffLoop(
         WHERE message_id = ${input.messageId}
       `;
 
+      // Onboarding Bypass (Legacy support for now, but wrapped in transition safety)
       const onboarding = await processOnboardingStep(tx, input.tenantId, input.messageText);
       if (!onboarding.completed) {
         await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
@@ -30,7 +37,7 @@ export async function runAtomicStaffLoop(
           responseType: "onboarding",
           delivered: false,
           latencyMs: Date.now() - start,
-          correlationId: input.correlationId,
+          correlationId: correlationId,
         };
       }
 
@@ -38,83 +45,146 @@ export async function runAtomicStaffLoop(
         SELECT business_name, tone_profile, response_style, escalation_contact, working_hours 
         FROM employer_profiles WHERE tenant_id = ${input.tenantId}
       `;
-
       if (!profile) throw new Error("STATE_INCONSISTENCY: Onboarding complete but profile missing.");
 
-      const existingEvent = await tx`
-        SELECT payload FROM core.events 
-        WHERE correlation_id = ${input.correlationId} 
-        AND type = 'STAFF_ACTION_TAKEN' 
-        LIMIT 1
-      `;
+      // 2. PROPOSED Stage
+      assertLegalTransition("LEDGERED", "PROPOSED");
+      const loopResult = await runStaffLoop(input, tx, config, profile);
+      if (!loopResult.decision) throw new Error("COGNITION_FAILURE: LLM failed to produce a decision.");
 
-      let loopResult: StaffLoopResult;
+      const seq = await getNextSequenceNumber(tx, aggregateId);
+      
+      const proposalEvent = {
+        eventId: randomUUID(),
+        aggregateId,
+        aggregateType: "CONVERSATION" as const,
+        sequenceNumber: seq,
+        type: "PROPOSAL_GENERATED" as const,
+        causationId: input.eventId,
+        correlationId,
+        ledgerEntryId: input.messageId,
+        occurredAt: new Date().toISOString(),
+        schemaVersion: 1,
+        payload: {
+          proposalId: loopResult.decision.decision_hash,
+          modelVersion: "llama-3.3-70b",
+          promptVersion: "staff-v1",
+          inferenceLatencyMs: loopResult.latencyMs,
+          confidenceScore: loopResult.decision.confidence,
+          proposal: loopResult.decision
+        },
+        contentHash: ""
+      };
+      proposalEvent.contentHash = buildContentHash(proposalEvent.payload);
+      await appendEvent(tx, proposalEvent);
 
-      if (existingEvent.length > 0) {
-        const cached = existingEvent[0].payload;
-        loopResult = {
-          responseText: cached.response_payload || cached.text,
-          responseType: "conversation",
-          delivered: false,
-          latencyMs: Date.now() - start,
-          correlationId: input.correlationId,
-          decision: { ...cached, source: "REPLAY" }
-        };
-      } else {
-        loopResult = await runStaffLoop(input, tx, config, profile);
+      // 3. VALIDATED Stage
+      assertLegalTransition("PROPOSED", "VALIDATED");
+      const compiler = new DecisionCompiler();
+      // Map legacy decision to new proposal format for compiler
+      const proposal = {
+        proposalId: loopResult.decision.decision_hash,
+        intents: [{ intent: "INFORM" as const, confidence: loopResult.decision.confidence }],
+        primaryIntent: "INFORM" as const,
+        overallConfidence: loopResult.decision.confidence,
+        proposedActions: loopResult.decision.required_actions.map(a => ({
+          type: "SEND_MESSAGE" as const,
+          recipientId: input.senderPhone,
+          content: loopResult.decision?.response_payload || "",
+          urgency: a.urgency === "URGENT" || a.urgency === "HIGH" ? ("HIGH" as const) : ("NORMAL" as const)
+        })),
+        reasoning: "Legacy loop migration"
+      };
+
+      const plan = compiler.compile(proposal, { stage: "VALIDATED", idempotencyKey: input.messageId });
+      if ("rejected" in plan) {
+        throw new Error(`BUSINESS_RULE_VIOLATION: ${plan.reasons.join(", ")}`);
+      }
+
+      const planEvent = {
+        eventId: randomUUID(),
+        aggregateId,
+        aggregateType: "CONVERSATION" as const,
+        sequenceNumber: seq + 1,
+        type: "ACTION_PLAN_COMPILED" as const,
+        causationId: proposalEvent.eventId,
+        correlationId,
+        ledgerEntryId: input.messageId,
+        occurredAt: new Date().toISOString(),
+        schemaVersion: 1,
+        payload: {
+          planId: plan.planId,
+          rulesApplied: ["LEGACY_COMPATIBILITY"],
+          overridesApplied: [],
+          compiledAt: plan.compiledAt
+        },
+        contentHash: ""
+      };
+      planEvent.contentHash = buildContentHash(planEvent.payload);
+      await appendEvent(tx, planEvent);
+
+      // 4. COMMITTED & EXECUTED Stages (Atomic for the bootstrap worker)
+      assertLegalTransition("VALIDATED", "COMMITTED");
+      assertLegalTransition("COMMITTED", "EXECUTED");
+
+      for (const action of plan.actions) {
+        const sideEffectId = randomUUID();
+        const idempotencyKey = createHash("sha256").update(planEvent.eventId + action.actionId).digest("hex");
         
-        if (loopResult.decision) {
-          if (loopResult.decision.confidence < 0.7) {
-            await tx`
-              INSERT INTO failure_logs (message_id, tenant_id, input_text, actual_behavior, failure_type)
-              VALUES (${input.messageId}, ${input.tenantId}, ${input.messageText}, ${tx.json(loopResult.decision)}, 'LOW_CONFIDENCE')
-            `;
-          }
+        await tx`
+          INSERT INTO side_effects (
+            side_effect_id, tenant_id, originating_event_id, idempotency_key,
+            effect_type, payload, status
+          ) VALUES (
+            ${sideEffectId}, ${input.tenantId}, ${planEvent.eventId}, ${idempotencyKey},
+            ${action.effectType}, ${tx.json(action.payload)}, 'PENDING'
+          )
+        `;
 
-          await commitEvent(tx, {
-            id: randomUUID(),
-            type: "STAFF_ACTION_TAKEN",
-            payload: loopResult.decision,
-            tenantId: input.tenantId,
-            correlationId: input.correlationId,
-            causationId: input.eventId,
-          });
-        }
+        await appendEvent(tx, {
+          eventId: randomUUID(),
+          aggregateId,
+          aggregateType: "CONVERSATION" as const,
+          sequenceNumber: seq + 2,
+          type: "SIDE_EFFECT_DISPATCHED" as const,
+          causationId: planEvent.eventId,
+          correlationId,
+          ledgerEntryId: input.messageId,
+          occurredAt: new Date().toISOString(),
+          schemaVersion: 1,
+          payload: { sideEffectId, effectType: action.effectType, targetId: input.senderPhone },
+          contentHash: buildContentHash({ sideEffectId, effectType: action.effectType, targetId: input.senderPhone })
+        });
       }
 
-      if (loopResult.decision) {
-        await executeStaffDecision(tx, input.tenantId, input.senderPhone, loopResult.decision, input.correlationId);
-      }
-
-      await tx`
-        UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}
-      `;
+      // 5. FINALIZED Stage
+      assertLegalTransition("EXECUTED", "FINALIZED");
+      await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
+      
+      validateInvariants({ stage: "FINALIZED", idempotencyKey: input.messageId });
 
       return loopResult;
     });
 
-    return result;
+  } catch (err: any) {
+    const failure = classify(err);
+    console.error(`[ATOMIC_RUNNER] [${failure.class}] ${err.message}`);
 
-  } catch (error: any) {
-    console.error(`[ATOMIC_RUNNER] TRANSACTION_FAILURE: ${error.message}`);
-    
-    await sql`
-      INSERT INTO failure_logs (message_id, tenant_id, input_text, failure_type, metadata)
-      VALUES (${input.messageId}, ${input.tenantId}, ${input.messageText}, 'LOGIC_ERROR', ${sql.json({ error: error.message })})
-    `;
-
-    try {
-      await sql`
-        UPDATE message_ledger SET status = 'FAILED', last_error = ${error.message}, updated_at = NOW() WHERE message_id = ${input.messageId}
+    await sql.begin(async (tx: any) => {
+      await tx`
+        INSERT INTO failure_logs (message_id, tenant_id, input_text, failure_type, metadata)
+        VALUES (${input.messageId}, ${input.tenantId}, ${input.messageText}, ${failure.class}, ${tx.json({ error: err.message, failureId: failure.failureId })})
       `;
-    } catch (ledgerErr) {}
+      
+      await compensate(tx, failure, { messageId: input.messageId, tenantId: input.tenantId });
+    });
 
     return {
       responseText: "I'm having a bit of trouble. Let me check that for you.",
       responseType: "error_degraded",
       delivered: false,
       latencyMs: Date.now() - start,
-      correlationId: input.correlationId,
+      correlationId: correlationId,
     };
   }
 }
