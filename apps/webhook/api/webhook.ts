@@ -76,12 +76,14 @@ export default async function handler(req: any, res: any) {
 
     try {
       telemetry.record("LEDGER_CHECK_STARTED");
+      console.log(`[DEBUG] [${trace.traceId}] Checking idempotency ledger...`);
       // ── Idempotency gate ───────────────────────────────────────────────
       const [existing] = await sql`
         SELECT status, updated_at FROM message_ledger WHERE message_id = ${messageId}
       `;
 
       if (existing) {
+        console.log(`[DEBUG] [${trace.traceId}] Existing ledger record found: ${existing.status}`);
         if (existing.status === "COMPLETED") {
           telemetry.record("LEDGER_BLOCK", { reason: "COMPLETED" });
           await sql.end();
@@ -98,6 +100,7 @@ export default async function handler(req: any, res: any) {
           WHERE message_id = ${messageId}
         `;
       } else {
+        console.log(`[DEBUG] [${trace.traceId}] Creating new ledger record...`);
         await sql`
           INSERT INTO message_ledger (message_id, tenant_id, status)
           VALUES (${messageId}, ${tenantId}, 'RECEIVED')
@@ -119,31 +122,38 @@ export default async function handler(req: any, res: any) {
         traceContext: trace,
       };
 
+      console.log(`[DEBUG] [${trace.traceId}] Starting AtomicRunner...`);
       telemetry.record("ATOMIC_RUNNER_STARTING");
       const result = await runAtomicStaffLoop(staffLoopInput, sql, {
         apiKey: config.LLM_API_KEY,
         provider: config.LLM_PROVIDER,
       }, telemetry);
+      console.log(`[DEBUG] [${trace.traceId}] AtomicRunner finished with response: ${result.responseText?.slice(0, 20)}...`);
       telemetry.record("ATOMIC_RUNNER_FINISHED", { resultType: result.responseType });
       
       // ── Deliver response via WhatsApp ──────────────────────────────────
       if (result.responseText) {
         const phoneNumberId = value.metadata?.phone_number_id as string | undefined;
         if (phoneNumberId) {
+          console.log(`[DEBUG] [${trace.traceId}] Dispatching to WhatsApp: ${phoneNumberId}`);
           telemetry.record("WHATSAPP_DISPATCH_STARTING", { 
             decisionId: result.decision?.decision_hash 
           });
           try {
             await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText, trace);
+            console.log(`[DEBUG] [${trace.traceId}] WhatsApp dispatch success!`);
             telemetry.record("WHATSAPP_DISPATCH_SUCCESS");
           } catch (waErr: unknown) {
             const msg = waErr instanceof Error ? waErr.message : String(waErr);
-            console.error(`[WEBHOOK] WHATSAPP_DISPATCH_FAILED: ${msg}`);
+            console.error(`[DEBUG] [${trace.traceId}] WhatsApp dispatch failed: ${msg}`);
             telemetry.record("WHATSAPP_DISPATCH_FAILED", { error: msg });
           }
         } else {
+          console.warn(`[DEBUG] [${trace.traceId}] Skipping dispatch: No phoneNumberId found in metadata`);
           telemetry.record("WHATSAPP_DISPATCH_SKIPPED", { reason: "MISSING_PHONE_NUMBER_ID" });
         }
+      } else {
+        console.warn(`[DEBUG] [${trace.traceId}] No responseText to send.`);
       }
 
       telemetry.complete("COMPLETED");
