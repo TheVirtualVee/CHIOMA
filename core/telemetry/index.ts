@@ -6,6 +6,7 @@ export class TelemetryManager {
   private start: number;
 
   constructor(messageId: string, traceId: string) {
+    console.log(`[DIAGNOSTIC] TelemetryManager.constructor starting [msg:${messageId}] [trc:${traceId}]`);
     this.start = Date.now();
     this.timeline = {
       traceId,
@@ -14,6 +15,7 @@ export class TelemetryManager {
       stages: [],
       finalState: "IN_PROGRESS",
     };
+    console.log(`[DIAGNOSTIC] TelemetryManager.constructor finished`);
   }
 
   record(stage: string, metadata?: Record<string, any>) {
@@ -51,9 +53,18 @@ export class TelemetryManager {
 }
 
 export function createTraceContext(workerId: string): TraceContext {
-  return {
-    traceId: `trc_${randomUUID()}`,
-    executionId: `exec_${randomUUID()}`,
-    workerId,
-  };
+  console.log(`[DIAGNOSTIC] createTraceContext starting [worker:${workerId}]`);
+  try {
+    const traceId = `trc_${randomUUID()}`;
+    const executionId = `exec_${randomUUID()}`;
+    console.log(`[DIAGNOSTIC] createTraceContext success [${traceId}]`);
+    return {
+      traceId,
+      executionId,
+      workerId,
+    };
+  } catch (err) {
+    console.error(`[DIAGNOSTIC] createTraceContext CRASHED:`, err);
+    throw err;
+  }
 }

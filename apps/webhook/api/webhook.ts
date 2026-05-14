@@ -12,7 +12,9 @@ import { TelemetryManager, createTraceContext } from "../../../core/telemetry/in
 export default async function handler(req: any, res: any) {
   console.log(`[BOOT] Webhook Handler Active [v1.2-diagnostic] [${req.method}]`);
   const workerId = `worker_${process.env.VERCEL_REGION || "local"}`;
+  console.log(`[DIAGNOSTIC] Calling createTraceContext...`);
   const trace = createTraceContext(workerId);
+  console.log(`[DIAGNOSTIC] trace: ${JSON.stringify(trace)}`);
   
   // 1. GET: WhatsApp webhook verification challenge
   if (req.method === "GET") {
@@ -33,6 +35,7 @@ export default async function handler(req: any, res: any) {
   const messages = value?.messages;
   const messageId = messages?.[0]?.id || "unknown";
 
+  console.log(`[DIAGNOSTIC] Instantiating TelemetryManager [mid:${messageId}]`);
   const telemetry = new TelemetryManager(messageId, trace.traceId);
   telemetry.record("REQUEST_RECEIVED", { 
     method: req.method, 

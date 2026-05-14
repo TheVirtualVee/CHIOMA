@@ -9,7 +9,9 @@
     "./staff-loop/atomic-runner": "./staff-loop/atomic-runner.ts",
     "./staff-rules": "./staff-rules/index.ts",
     "./runtime": "./runtime/index.ts",
-    "./events": "./events/index.ts"
+    "./events": "./events/index.ts",
+    "./telemetry": "./telemetry/index.ts",
+    "./contracts/telemetry": "./contracts/telemetry.ts"
   },
   "devDependencies": {
     "typescript": "^5.9.0",
