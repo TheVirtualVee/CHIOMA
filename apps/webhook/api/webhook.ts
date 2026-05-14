@@ -11,8 +11,11 @@ import { runStaffLoop } from "../../../core/staff-loop/index.js";
 
 export default async function handler(req: any, res: any) {
   const start = Date.now();
-  
+  console.log("[FLOW] 1 - HANDLER_ENTER");
+  console.log("[FLOW] 2 - METHOD_CHECK", req.method);
+
   if (req.method === "GET") {
+    console.log("[FLOW] EARLY_RETURN", "GET_VERIFY_BRANCH");
     const mode = req.query["hub.mode"];
     const token = req.query["hub.verify_token"];
     const challenge = req.query["hub.challenge"];
@@ -24,15 +27,23 @@ export default async function handler(req: any, res: any) {
     return res.status(403).send("Forbidden");
   }
 
+  console.log("[FLOW] 3 - METHOD_ACCEPTED - not GET");
+
   let config;
   try {
     config = validateConfig();
+    console.log("[FLOW] 4 - CONFIG_VALIDATED");
   } catch (err) {
     console.error("[WEBHOOK] CONFIG_FAILURE", String(err));
+    console.log("[FLOW] EARLY_RETURN", "CONFIG_FAILURE");
     return res.status(500).send("Configuration incomplete");
   }
 
+  console.log("[FLOW] 5 - VERIFY_BRANCH_CHECK - method is:", req.method);
+
   if (req.method === "POST") {
+    console.log("[FLOW] 6 - POST_PROCESSING_START");
+
     // TOP-LEVEL fatal catch — nothing escapes silently
     try {
       console.log("[WEBHOOK] REQUEST_RECEIVED");
@@ -72,13 +83,17 @@ export default async function handler(req: any, res: any) {
       // ── END SAFE INTROSPECTION ─────────────────────────────────────────
 
       // Signature validation — rawBody must be derived safely
+      console.log("[FLOW] 7 - PAYLOAD_EXTRACTION - building rawBody");
       const rawBody = typeof req.body === "string"
         ? req.body
         : JSON.stringify(req.body);
       const signature = req.headers["x-hub-signature-256"];
+      console.log("[FLOW] 7a - SIGNATURE_HEADER_PRESENT", !!signature);
+      console.log("[FLOW] 7b - APP_SECRET_PRESENT", !!config.WHATSAPP_APP_SECRET);
 
       if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "")) {
         console.error("[WEBHOOK] SIGNATURE_INVALID");
+        console.log("[FLOW] EARLY_RETURN", "SIGNATURE_INVALID_401");
         return res.status(401).send("Unauthorized");
       }
       console.log("[WEBHOOK] SIGNATURE_VALID");
@@ -91,6 +106,7 @@ export default async function handler(req: any, res: any) {
 
       if (!messages || messages.length === 0) {
         console.log("[WEBHOOK] NON_MESSAGE_EVENT — field:", change?.field);
+        console.log("[FLOW] EARLY_RETURN", "NON_MESSAGE_EVENT_200");
         return res.status(200).json({ ok: true, ignored: true });
       }
 
@@ -100,6 +116,7 @@ export default async function handler(req: any, res: any) {
       const messageId = message.id;
 
       console.log("[WEBHOOK] MESSAGE_EXTRACTED", { from, text, messageId });
+      console.log("[FLOW] 8 - STAFF_LOOP_START");
 
       const tenantId = `tenant_${value.metadata?.phone_number_id || "default"}`;
       const correlationId = `corr_${messageId}`;
@@ -109,6 +126,7 @@ export default async function handler(req: any, res: any) {
         const [existing] = await sql`SELECT message_id FROM processed_messages WHERE message_id = ${messageId}`;
         if (existing) {
           console.log("[WEBHOOK] DUPLICATE_MESSAGE_IGNORED", messageId);
+          console.log("[FLOW] EARLY_RETURN", "DUPLICATE_MESSAGE_200");
           return res.status(200).send("OK");
         }
 
@@ -132,6 +150,7 @@ export default async function handler(req: any, res: any) {
         );
 
         if (result.responseText) {
+          console.log("[FLOW] 9 - WHATSAPP_SEND");
           const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
           const phoneNumberId = value.metadata?.phone_number_id;
           if (phoneNumberId) {
@@ -141,11 +160,13 @@ export default async function handler(req: any, res: any) {
           }
         }
 
+        console.log("[FLOW] 10 - RESPONSE_SUCCESS");
         console.log("[WEBHOOK] STAFF_LOOP_COMPLETE", { messageId, tenantId, latency: Date.now() - start });
         return res.status(200).send("OK");
 
       } catch (processingErr) {
         console.error("[WEBHOOK_PROCESSING_FAILURE]", String(processingErr));
+        console.log("[FLOW] EARLY_RETURN", "PROCESSING_ERROR_200");
         return res.status(200).send("OK");
       } finally {
         await sql.end();
@@ -153,10 +174,12 @@ export default async function handler(req: any, res: any) {
 
     } catch (fatalError) {
       console.error("[WEBHOOK_FATAL]", fatalError);
+      console.log("[FLOW] EARLY_RETURN", "FATAL_500");
       return res.status(500).json({ ok: false, error: String(fatalError) });
     }
   }
 
+  console.log("[FLOW] EARLY_RETURN", "METHOD_NOT_ALLOWED_405", req.method);
   return res.status(405).send("Method Not Allowed");
 }
 
