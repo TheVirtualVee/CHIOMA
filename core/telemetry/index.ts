@@ -42,7 +42,7 @@ export class TelemetryManager {
     // 🧠 CRITICAL for Serverless: Log the entire causal chain in one final line.
     // This ensures that even if individual logs are missed, the full narrative is preserved.
     const narrative = this.timeline.stages.map(s => `(${s.elapsedMs}ms: ${s.stage})`).join(" -> ");
-    console.log(`[EXECUTION_SUMMARY] [${this.timeline.traceId}] [${state}] Narrative: ${narrative}`);
+    console.log(`[EXECUTION_SUMMARY] [${this.timeline.traceId}] [${state}] [v1.1-hardened] Narrative: ${narrative}`);
   }
 
   getTimeline(): ExecutionTimeline {
