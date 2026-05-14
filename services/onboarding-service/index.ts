@@ -57,6 +57,7 @@ export async function processOnboardingStep(
       await sql`
         INSERT INTO business_facts (tenant_id, key, value)
         VALUES (${tenantId}, 'employer_correction', ${sql.json({ correction: messageText, timestamp: new Date() })})
+        ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value
       `;
       return { completed: false, response: "Got it! I've updated my understanding. Anything else I should know, or are we good to go?" };
     }
