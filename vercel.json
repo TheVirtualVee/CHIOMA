@@ -2,19 +2,6 @@
   "version": 2,
   "builds": [
     {
-      "src": "apps/webhook/api/health.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": [
-          "core/**",
-          "infrastructure/**",
-          "services/**",
-          "package.json",
-          "tsconfig.json"
-        ]
-      }
-    },
-    {
       "src": "apps/webhook/api/webhook.ts",
       "use": "@vercel/node",
       "config": {
@@ -28,33 +15,17 @@
       }
     },
     {
+      "src": "apps/webhook/api/health.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "infrastructure/**",
+          "package.json"
+        ]
+      }
+    },
+    {
       "src": "apps/webhook/api/simulate-message.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": [
-          "core/**",
-          "infrastructure/**",
-          "services/**",
-          "package.json",
-          "tsconfig.json"
-        ]
-      }
-    },
-    {
-      "src": "apps/webhook/api/demo.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": [
-          "core/**",
-          "infrastructure/**",
-          "services/**",
-          "package.json",
-          "tsconfig.json"
-        ]
-      }
-    },
-    {
-      "src": "apps/webhook/api/admin/events.ts",
       "use": "@vercel/node",
       "config": {
         "includeFiles": [
@@ -78,14 +49,22 @@
           "tsconfig.json"
         ]
       }
+    },
+    {
+      "src": "apps/webhook/api/ping.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "package.json"
+        ]
+      }
     }
   ],
   "routes": [
     { "src": "/api/health",           "dest": "apps/webhook/api/health.ts" },
     { "src": "/api/webhook",          "dest": "apps/webhook/api/webhook.ts" },
     { "src": "/api/simulate-message", "dest": "apps/webhook/api/simulate-message.ts" },
-    { "src": "/api/demo",             "dest": "apps/webhook/api/demo.ts" },
-    { "src": "/api/admin/events",     "dest": "apps/webhook/api/admin/events.ts" },
-    { "src": "/api/debug-loop",       "dest": "apps/webhook/api/debug-loop.ts" }
+    { "src": "/api/debug-loop",       "dest": "apps/webhook/api/debug-loop.ts" },
+    { "src": "/api/ping",             "dest": "apps/webhook/api/ping.ts" }
   ]
 }

@@ -11,7 +11,7 @@ import { runStaffLoop } from "../../../core/staff-loop/index.js";
  */
 
 export default async function handler(req: any, res: any) {
-  console.log("[WEBHOOK] REQUEST_RECEIVED");
+  console.error("[WEBHOOK] REQUEST_RECEIVED");
 
   if (req.method === "GET") {
     const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
