@@ -112,9 +112,13 @@ export default async function handler(req: any, res: any) {
       if (result.responseText) {
         const phoneNumberId = value.metadata?.phone_number_id as string | undefined;
         if (phoneNumberId) {
-          telemetry.record("SIDE_EFFECT_QUEUED", { effectType: "WHATSAPP_MESSAGE" });
+          telemetry.record("SIDE_EFFECT_QUEUED", { 
+            effectType: "WHATSAPP_MESSAGE",
+            decisionId: result.decision?.decision_hash,
+            messageId: messageId
+          });
           try {
-            await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText);
+            await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText, trace);
             telemetry.record("SIDE_EFFECT_EXECUTED", { effectType: "WHATSAPP_MESSAGE", status: "SUCCESS" });
           } catch (waErr: unknown) {
             const msg = waErr instanceof Error ? waErr.message : String(waErr);

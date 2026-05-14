@@ -27,7 +27,7 @@ export class TelemetryManager {
     this.timeline.stages.push(event);
     
     // Structured log for external observability (Vercel/Datadog/etc)
-    console.log(`[TELEMETRY] [${event.elapsedMs}ms] ${stage}${metadata ? ' ' + JSON.stringify(metadata) : ''}`);
+    console.log(`[TELEMETRY] [${this.timeline.traceId}] [${event.elapsedMs}ms] ${stage}${metadata ? ' ' + JSON.stringify(metadata) : ''}`);
   }
 
   complete(state: ExecutionState) {
