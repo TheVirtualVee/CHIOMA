@@ -31,7 +31,8 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       correlationId: "corr_001",
       causationId: "caus_001",
       eventId: "ev_001",
-      channel: "simulation"
+      channel: "simulation",
+      traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" }
     },
     profile: {
       business_name: "Chioma Beauty Hub",
@@ -59,7 +60,8 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       correlationId: "corr_002",
       causationId: "caus_002",
       eventId: "ev_002",
-      channel: "simulation"
+      channel: "simulation",
+      traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" }
     },
     profile: {
       business_name: "Chioma Beauty Hub",
@@ -87,7 +89,8 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       correlationId: "corr_003",
       causationId: "caus_003",
       eventId: "ev_003",
-      channel: "simulation"
+      channel: "simulation",
+      traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" }
     },
     profile: {
       business_name: "Chioma Beauty Hub",

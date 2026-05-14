@@ -3,7 +3,8 @@ import {
   StaffLoopInput, 
   StaffLoopResult,
   EmployabilityProfile,
-  StaffDecision
+  StaffDecision,
+  StaffAction
 } from "../contracts/index.js";
 import { validateStaffAction, sanitizeStaffReply } from "../staff-rules/index.js";
 import { enforceEmployeePsychology } from "../staff-rules/behavioral-enforcer.js";
