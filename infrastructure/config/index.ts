@@ -13,7 +13,9 @@ const ConfigSchema = z.object({
 export type Config = z.infer<typeof ConfigSchema>;
 
 export function validateConfig(): Config {
+  console.log("[CONFIG] START_VALIDATION");
   const result = ConfigSchema.safeParse(process.env);
+  console.log(`[CONFIG] VALIDATION_RESULT: ${result.success}`);
 
   if (!result.success) {
     console.error("CONFIG_INVALID", result.error.format());

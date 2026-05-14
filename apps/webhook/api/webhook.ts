@@ -32,6 +32,7 @@ export default async function handler(req: any, res: any) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
+    l("VALIDATING_CONFIG_START");
     const config = validateConfig();
     l("CONFIG_VALIDATED");
 
