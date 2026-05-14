@@ -7,175 +7,113 @@ import { runStaffLoop } from "../../../core/staff-loop/index.js";
  * api/webhook.ts
  *
  * CHIOMA WhatsApp Webhook Handler.
- * DIAGNOSTIC BUILD — single-log + response-body trace.
+ * FINAL WIRING FIX — Ensuring single entrypoint and direct async execution.
  */
 
 export default async function handler(req: any, res: any) {
-  // Collect ALL trace data into one object, emit as ONE log, return in body
-  const trace: string[] = [];
-  const t = (msg: string) => { trace.push(msg); };
+  console.log("[WEBHOOK] REQUEST_RECEIVED");
 
-  t("ENTER");
-  t("METHOD:" + req.method);
-  t("PATH:" + req.url);
-  t("CWD:" + process.cwd());
-
-  try {
-    t("BODY_TYPE:" + typeof req.body);
-    t("BODY_TRUTHY:" + !!req.body);
-    if (req.body) {
-      t("BODY_KEYS:" + Object.keys(req.body).join(","));
-    }
-  } catch (e) { t("BODY_ACCESS_ERROR:" + e); }
-
-  // ── GET: Webhook verification ─────────────────────────────────────────
   if (req.method === "GET") {
-    t("GET_BRANCH");
-    const mode = req.query["hub.mode"];
-    const token = req.query["hub.verify_token"];
-    const challenge = req.query["hub.challenge"];
     const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
-
-    if (mode === "subscribe" && token === verifyToken) {
-      t("CHALLENGE_OK");
-      console.log("[WEBHOOK_TRACE]", trace.join(" | "));
-      return res.status(200).send(challenge);
+    if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === verifyToken) {
+      return res.status(200).send(req.query["hub.challenge"]);
     }
-    t("CHALLENGE_FAIL");
-    console.log("[WEBHOOK_TRACE]", trace.join(" | "));
     return res.status(403).send("Forbidden");
   }
 
-  // ── POST: Message processing ──────────────────────────────────────────
-  if (req.method !== "POST") {
-    t("NOT_POST_EXIT");
-    console.log("[WEBHOOK_TRACE]", trace.join(" | "));
-    return res.status(405).json({ trace });
-  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  t("POST_ACCEPTED");
-
-  // Config
-  let config: any;
   try {
-    config = validateConfig();
-    t("CONFIG_OK");
-  } catch (err) {
-    t("CONFIG_FAIL:" + err);
-    console.log("[WEBHOOK_TRACE]", trace.join(" | "));
-    return res.status(500).json({ trace });
-  }
-
-  t("TOKEN_PRESENT:" + !!config.WHATSAPP_ACCESS_TOKEN);
-  t("SECRET_PRESENT:" + !!config.WHATSAPP_APP_SECRET);
-
-  // Signature
-  try {
-    const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
-    t("RAW_BODY_LEN:" + rawBody.length);
+    const config = validateConfig();
+    
+    // Validate signature
     const signature = req.headers["x-hub-signature-256"];
-    t("SIG_PRESENT:" + !!signature);
-
-    const sigValid = validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "");
-    t("SIG_VALID:" + sigValid);
-
-    if (!sigValid) {
-      t("EXIT:INVALID_SIGNATURE");
-      console.log("[WEBHOOK_TRACE]", trace.join(" | "));
-      return res.status(401).json({ trace });
-    }
-  } catch (e) {
-    t("SIG_CRASH:" + e);
-    console.log("[WEBHOOK_TRACE]", trace.join(" | "));
-    return res.status(500).json({ trace });
-  }
-
-  // Payload extraction
-  const entry = req.body?.entry?.[0];
-  const change = entry?.changes?.[0];
-  const value = change?.value;
-  const messages = value?.messages;
-
-  t("HAS_ENTRY:" + !!entry);
-  t("HAS_CHANGE:" + !!change);
-  t("FIELD:" + change?.field);
-  t("HAS_MESSAGES:" + !!messages);
-  t("HAS_STATUSES:" + !!value?.statuses);
-
-  if (!messages || messages.length === 0) {
-    t("EXIT:NON_MESSAGE_EVENT");
-    console.log("[WEBHOOK_TRACE]", trace.join(" | "));
-    return res.status(200).json({ ok: true, ignored: true, trace });
-  }
-
-  const message = messages[0];
-  const from = message.from;
-  const text = message.text?.body || "";
-  const messageId = message.id;
-
-  t("MSG_FROM:" + from);
-  t("MSG_TEXT:" + text);
-  t("MSG_ID:" + messageId);
-
-  const tenantId = `tenant_${value.metadata?.phone_number_id || "default"}`;
-  const correlationId = `corr_${messageId}`;
-
-  // DB + Staff Loop
-  const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
-  try {
-    const [existing] = await sql`SELECT message_id FROM processed_messages WHERE message_id = ${messageId}`;
-    if (existing) {
-      t("EXIT:DUPLICATE_MSG");
-      console.log("[WEBHOOK_TRACE]", trace.join(" | "));
-      return res.status(200).json({ ok: true, duplicate: true, trace });
+    const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+    if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "")) {
+      console.log("[WEBHOOK] INVALID_SIGNATURE");
+      return res.status(401).json({ error: "Invalid signature" });
     }
 
-    t("INSERTING_EVENT");
-    const eventId = randomUUID();
-    await sql.begin(async (tx: any) => {
-      await tx`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
-      await commitEvent(tx, {
-        id: eventId,
-        type: "MESSAGE_RECEIVED",
-        payload: { channel: "whatsapp", from, text, waMessageId: messageId },
-        tenantId,
-        correlationId,
-        causationId: correlationId
-      });
-    });
+    const entry = req.body?.entry?.[0];
+    const value = entry?.changes?.[0]?.value;
+    const messages = value?.messages;
 
-    t("RUNNING_STAFF_LOOP");
-    const result = await runStaffLoop(
-      { tenantId, senderPhone: from, messageText: text, correlationId, causationId: eventId, eventId, channel: "whatsapp" },
-      sql,
-      { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
-    );
-    t("STAFF_LOOP_DONE:" + result.responseType);
+    if (!messages || messages.length === 0) {
+      return res.status(200).json({ ok: true, ignored: true });
+    }
 
-    if (result.responseText) {
-      t("SENDING_REPLY");
-      const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
-      const phoneNumberId = value.metadata?.phone_number_id;
-      t("PHONE_NUMBER_ID:" + phoneNumberId);
+    const message = messages[0];
+    const from = message.from;
+    const text = message.text?.body || "";
+    const messageId = message.id;
 
-      if (phoneNumberId) {
-        await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText);
-        t("REPLY_SENT");
-      } else {
-        t("NO_PHONE_NUMBER_ID");
+    console.log("[WEBHOOK] PROCESSING_MESSAGE", { from, text });
+
+    const tenantId = `tenant_${value.metadata?.phone_number_id || "default"}`;
+    const correlationId = `corr_${messageId}`;
+
+    const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
+
+    try {
+      // 1. Idempotency Check
+      const [existing] = await sql`SELECT message_id FROM processed_messages WHERE message_id = ${messageId}`;
+      if (existing) {
+        console.log("[WEBHOOK] DUPLICATE_SKIP", { messageId });
+        return res.status(200).json({ ok: true, duplicate: true });
       }
-    }
 
-    t("SUCCESS_END");
-    console.log("[WEBHOOK_TRACE]", trace.join(" | "));
-    return res.status(200).json({ ok: true, trace });
+      // 2. Commit Ingress Event
+      const eventId = randomUUID();
+      await sql.begin(async (tx: any) => {
+        await tx`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
+        await commitEvent(tx, {
+          id: eventId,
+          type: "MESSAGE_RECEIVED",
+          payload: { channel: "whatsapp", from, text, waMessageId: messageId },
+          tenantId,
+          correlationId,
+          causationId: correlationId
+        });
+      });
+
+      console.log("[WEBHOOK] CALLING_RUNSTAFFLOOP");
+      
+      // 3. EXECUTE STAFF LOOP
+      const result = await runStaffLoop(
+        { tenantId, senderPhone: from, messageText: text, correlationId, causationId: eventId, eventId, channel: "whatsapp" },
+        sql,
+        { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
+      );
+
+      console.log("[WEBHOOK] STAFF_LOOP_DONE", { responseType: result.responseType });
+
+      // 4. SEND REPLY
+      if (result.responseText) {
+        const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
+        const phoneNumberId = value.metadata?.phone_number_id;
+        
+        if (phoneNumberId) {
+          console.log("[WEBHOOK] SENDING_WHATSAPP_REPLY", { to: from });
+          await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText);
+          console.log("[WEBHOOK] REPLY_SENT_SUCCESS");
+        } else {
+          console.log("[WEBHOOK] MISSING_PHONE_NUMBER_ID");
+        }
+      }
+
+      console.log("[WEBHOOK] FLOW_COMPLETED");
+      return res.status(200).json({ ok: true });
+
+    } catch (err) {
+      console.error("[WEBHOOK] INNER_ERROR", err);
+      return res.status(200).json({ ok: false, error: String(err) });
+    } finally {
+      await sql.end();
+    }
 
   } catch (err) {
-    t("PROCESSING_CRASH:" + err);
-    console.log("[WEBHOOK_TRACE]", trace.join(" | "));
-    return res.status(200).json({ ok: false, trace });
-  } finally {
-    await sql.end();
+    console.error("[WEBHOOK] OUTER_ERROR", err);
+    return res.status(500).json({ error: "Internal server error" });
   }
 }
 
