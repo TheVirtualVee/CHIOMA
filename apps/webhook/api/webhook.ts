@@ -1,4 +1,4 @@
-import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient } from "../../../infrastructure/database/index.js";
 import { runAtomicStaffLoop } from "../../../core/staff-loop/atomic-runner.js";
@@ -10,42 +10,44 @@ import { TelemetryManager, createTraceContext } from "../../../core/telemetry/in
  */
 
 export default async function handler(req: any, res: any) {
-  console.log(`[BOOT] Webhook Handler Active [v1.3-instrumented] [${req.method}]`);
-  const workerId = `worker_${process.env.VERCEL_REGION || "local"}`;
-  console.log(`[DIAGNOSTIC] Calling createTraceContext...`);
-  const trace = createTraceContext(workerId);
-  console.log(`[DIAGNOSTIC] trace: ${JSON.stringify(trace)}`);
+  console.log(`[BOOT] Webhook Handler Active [v1.4-universal-guard] [${req.method}]`);
   
-  // 1. GET: WhatsApp webhook verification challenge
-  if (req.method === "GET") {
-    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
-    if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === verifyToken) {
-      return res.status(200).send(req.query["hub.challenge"]);
-    }
-    return res.status(403).send("Forbidden");
-  }
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
-  // 2. Ingress Telemetry & Identification
-  const entry = req.body?.entry?.[0];
-  const value = entry?.changes?.[0]?.value;
-  const messages = value?.messages;
-  const messageId = messages?.[0]?.id || "unknown";
-
-  console.log(`[DIAGNOSTIC] Instantiating TelemetryManager [mid:${messageId}]`);
-  const telemetry = new TelemetryManager(messageId, trace.traceId);
-  telemetry.record("REQUEST_RECEIVED", { 
-    method: req.method, 
-    traceId: trace.traceId, 
-    executionId: trace.executionId 
-  });
-
-  // 🧠 LIFECYCLE GUARD: Use a promise-based execution block to ensure we await EVERYTHING.
-  // This prevents Vercel from freezing the runtime early.
   try {
+    const workerId = `worker_${(typeof process !== 'undefined' ? process.env?.VERCEL_REGION : 'unknown') || "local"}`;
+    console.log(`[DIAGNOSTIC] Calling createTraceContext...`);
+    const trace = createTraceContext(workerId);
+    console.log(`[DIAGNOSTIC] trace: ${JSON.stringify(trace)}`);
+    
+    // 1. GET: WhatsApp webhook verification challenge
+    if (req.method === "GET") {
+      const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
+      if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === verifyToken) {
+        return res.status(200).send(req.query["hub.challenge"]);
+      }
+      return res.status(403).send("Forbidden");
+    }
+
+    if (req.method !== "POST") {
+      return res.status(405).json({ error: "Method not allowed" });
+    }
+
+    // 2. Ingress Telemetry & Identification
+    const entry = req.body?.entry?.[0];
+    const value = entry?.changes?.[0]?.value;
+    const messages = value?.messages;
+    const messageId = messages?.[0]?.id || "unknown";
+
+    console.log(`[DIAGNOSTIC] Instantiating TelemetryManager [mid:${messageId}]`);
+    const telemetry = new TelemetryManager(messageId, trace.traceId);
+    telemetry.record("REQUEST_RECEIVED", { 
+      method: req.method, 
+      traceId: trace.traceId, 
+      executionId: trace.executionId 
+    });
+
+    // 🧠 LIFECYCLE GUARD: Use a promise-based execution block to ensure we await EVERYTHING.
+    // This prevents Vercel from freezing the runtime early.
+    try {
     const config = validateConfig();
 
     // 3. Signature Validation
@@ -186,10 +188,8 @@ export default async function handler(req: any, res: any) {
 
   } catch (outerErr: unknown) {
     const msg = outerErr instanceof Error ? outerErr.message : String(outerErr);
-    telemetry.record("INGRESS_FAILED", { error: msg });
-    // telemetry might not be fully initialized here but we try
-    if (telemetry) telemetry.complete("FAILED");
-    return res.status(200).json({ ok: false, error: msg });
+    console.error(`[FATAL_INBOUND_CRASH]`, outerErr);
+    return res.status(500).json({ ok: false, error: "Universal Guard Triggered", detail: msg });
   }
 }
 
