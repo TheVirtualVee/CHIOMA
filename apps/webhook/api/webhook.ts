@@ -14,12 +14,10 @@ const ONBOARDING_STEPS = [
 ];
 
 async function inlinedOnboarding(sql: any, tenantId: string, messageText: string) {
-  console.error("[INLINED_ONBOARDING] START");
+  console.error("[ONBOARDING_TRACE] START");
   const [profile] = await sql`SELECT onboarding_status, current_onboarding_step FROM employer_profiles WHERE tenant_id = ${tenantId}`;
-  console.error("[INLINED_ONBOARDING] PROFILE_FETCHED", { exists: !!profile });
   if (profile?.onboarding_status === 'COMPLETED') return { completed: true };
   if (!profile) {
-    console.error("[INLINED_ONBOARDING] INITIAL_INSERT");
     await sql`INSERT INTO employer_profiles (tenant_id, onboarding_status, current_onboarding_step) VALUES (${tenantId}, 'STARTED', ${ONBOARDING_STEPS[0].key})`;
     return { completed: false, response: ONBOARDING_STEPS[0].question };
   }
@@ -27,60 +25,65 @@ async function inlinedOnboarding(sql: any, tenantId: string, messageText: string
 }
 
 export default async function handler(req: any, res: any) {
-  console.error("[WEBHOOK] NUCLEAR_REQUEST_RECEIVED");
-
-  if (req.method === "GET") {
-    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
-    if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === verifyToken) {
-      return res.status(200).send(req.query["hub.challenge"]);
-    }
-    return res.status(403).send("Forbidden");
-  }
-
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const log: string[] = [];
+  const l = (m: string) => { 
+    log.push(`[${Date.now()}] ${m}`);
+    console.error(`[W] ${m}`); 
+  };
 
   try {
-    console.error("[WEBHOOK] STEP_1_CONFIG");
+    l("ENTER_HANDLER");
+    l("METHOD_" + req.method);
+
+    if (req.method === "GET") {
+      const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
+      if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === verifyToken) {
+        return res.status(200).send(req.query["hub.challenge"]);
+      }
+      return res.status(403).send("Forbidden");
+    }
+
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+    l("VALIDATING_CONFIG");
     const config = validateConfig();
     
-    console.error("[WEBHOOK] STEP_2_SIGNATURE");
+    l("EXTRACTING_PAYLOAD");
     const signature = req.headers["x-hub-signature-256"];
     const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
 
     if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "")) {
-      console.error("[WEBHOOK] STEP_2_FAIL_SIG");
-      return res.status(401).json({ error: "Invalid signature" });
+      l("SIG_FAIL");
+      return res.status(401).json({ error: "Invalid signature", log });
     }
 
-    console.error("[WEBHOOK] STEP_3_PAYLOAD");
     const entry = req.body?.entry?.[0];
-    const change = entry?.changes?.[0];
-    const value = change?.value;
+    const value = entry?.changes?.[0]?.value;
     const messages = value?.messages;
 
     if (!messages || messages.length === 0) {
-      console.error("[WEBHOOK] STEP_3_EXIT_NON_MSG");
-      return res.status(200).json({ ok: true, ignored: true });
+      l("EXIT_NO_MSG");
+      return res.status(200).json({ ok: true, ignored: true, log });
     }
 
-    console.error("[WEBHOOK] STEP_4_EXTRACTION");
     const message = messages[0];
     const from = message.from;
     const text = message.text?.body || "";
     const messageId = message.id;
 
-    console.error("[WEBHOOK] STEP_5_DB_INIT");
+    l("MSG_RECV_" + from);
+
     const tenantId = `tenant_${value.metadata?.phone_number_id || "default"}`;
     const correlationId = `corr_${messageId}`;
     const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
     try {
-      console.error("[WEBHOOK] STEP_6_IDEMPOTENCY");
+      l("DB_IDEMPOTENCY");
       const [existing] = await sql`SELECT message_id FROM processed_messages WHERE message_id = ${messageId}`;
-      if (existing) return res.status(200).json({ ok: true, duplicate: true });
+      if (existing) return res.status(200).json({ ok: true, duplicate: true, log });
 
-      console.error("[WEBHOOK] STEP_7_EVENT_COMMIT");
       const eventId = randomUUID();
+      l("DB_COMMIT");
       await sql.begin(async (tx: any) => {
         await tx`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
         await commitEvent(tx, {
@@ -93,40 +96,40 @@ export default async function handler(req: any, res: any) {
         });
       });
 
-      console.error("[WEBHOOK] STEP_8_LOOP_START");
+      l("LOOP_START");
       const onboarding = await inlinedOnboarding(sql, tenantId, text);
       let responseText = onboarding.response;
 
       if (onboarding.completed) {
-        console.error("[WEBHOOK] STEP_9_LLM_START");
+        l("LLM_START");
         const [profile] = await sql`SELECT business_name FROM employer_profiles WHERE tenant_id = ${tenantId}`;
         const proposed = await generateStaffReply(text, "Inlined Brief", profile || { business_name: "The Shop" });
         responseText = proposed.response;
       }
 
       if (responseText) {
-        console.error("[WEBHOOK] STEP_10_SEND_START");
+        l("WA_SEND_START");
         const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
         const phoneNumberId = value.metadata?.phone_number_id;
         if (phoneNumberId) {
           await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, responseText);
-          console.error("[WEBHOOK] STEP_10_SEND_OK");
+          l("WA_SEND_OK");
         }
       }
 
-      console.error("[WEBHOOK] STEP_11_FINISH");
-      return res.status(200).json({ ok: true });
+      l("FINISH");
+      return res.status(200).json({ ok: true, log });
 
-    } catch (err) {
-      console.error("[WEBHOOK] INNER_CRASH", err);
-      throw err;
+    } catch (err: any) {
+      l("INNER_ERR_" + err?.message || err);
+      return res.status(200).json({ ok: false, error: String(err), log });
     } finally {
       await sql.end();
     }
 
-  } catch (err) {
-    console.error("[WEBHOOK] OUTER_CRASH", err);
-    return res.status(500).json({ error: "Internal server error" });
+  } catch (err: any) {
+    l("OUTER_ERR_" + err?.message || err);
+    return res.status(500).json({ error: "Internal server error", log });
   }
 }
 
