@@ -20,23 +20,29 @@ export async function processOnboardingStep(
   tenantId: string,
   messageText: string
 ): Promise<{ completed: boolean; response: string }> {
+  console.log("[ONBOARDING] START", { tenantId });
   
-  const [profile] = await sql`
-    SELECT onboarding_status, current_onboarding_step FROM employer_profiles WHERE tenant_id = ${tenantId}
-  `;
-
-  if (profile?.onboarding_status === 'COMPLETED') {
-    return { completed: true, response: "" };
-  }
-
-  // 1. Initial Greeting
-  if (!profile) {
-    await sql`
-      INSERT INTO employer_profiles (tenant_id, onboarding_status, current_onboarding_step)
-      VALUES (${tenantId}, 'STARTED', ${ONBOARDING_STEPS[0].key})
+  try {
+    console.log("[ONBOARDING] FETCHING_PROFILE");
+    const [profile] = await sql`
+      SELECT onboarding_status, current_onboarding_step FROM employer_profiles WHERE tenant_id = ${tenantId}
     `;
-    return { completed: false, response: ONBOARDING_STEPS[0].question };
-  }
+    console.log("[ONBOARDING] PROFILE_RESULT", { exists: !!profile, status: profile?.onboarding_status });
+
+    if (profile?.onboarding_status === 'COMPLETED') {
+      return { completed: true, response: "" };
+    }
+
+    // 1. Initial Greeting
+    if (!profile) {
+      console.log("[ONBOARDING] INITIAL_GREETING_INSERT");
+      await sql`
+        INSERT INTO employer_profiles (tenant_id, onboarding_status, current_onboarding_step)
+        VALUES (${tenantId}, 'STARTED', ${ONBOARDING_STEPS[0].key})
+      `;
+      console.log("[ONBOARDING] GREETING_SENT");
+      return { completed: false, response: ONBOARDING_STEPS[0].question };
+    }
 
   // 2. Process Answer & Advance
   const currentIndex = ONBOARDING_STEPS.findIndex(s => s.key === profile.current_onboarding_step);
@@ -98,9 +104,13 @@ export async function processOnboardingStep(
     WHERE tenant_id = ${tenantId}
   `;
 
-  return { 
-    completed: true, 
-    response: "Perfect! I've locked in your business knowledge. I'm now ready to manage your customers as your digital staff. 👍" 
-  };
+    return { 
+      completed: true, 
+      response: "Perfect! I've locked in your business knowledge. I'm now ready to manage your customers as your digital staff. 👍" 
+    };
+  } catch (err) {
+    console.error("[ONBOARDING] FATAL_ERROR", err);
+    throw err;
+  }
 }
 

@@ -16,7 +16,7 @@ import { executeStaffDecision } from "../../services/employment-logic/index.js";
  * core/staff-loop/index.ts
  *
  * THE STAFF LOOP (Authority Model v1.1)
- * Deterministic Core + Probabilistic Conversational Renderer.
+ * HARD TRACING BUILD — isolates exact failure in orchestration.
  */
 
 export async function runStaffLoop(
@@ -25,16 +25,22 @@ export async function runStaffLoop(
   config: { apiKey: string; provider: string }
 ): Promise<StaffLoopResult> {
   const start = Date.now();
-  console.log("[STAFF_LOOP] START", {
-    tenantId: input.tenantId,
-    senderPhone: input.senderPhone,
-    message: input.messageText
-  });
+  const trace: string[] = [];
+  const t = (m: string) => { 
+    trace.push(`[${Date.now() - start}ms] ${m}`); 
+    console.log(`[STAFF_LOOP_TRACE] ${m}`);
+  };
+
+  t("START_LOOP");
 
   try {
     // 1. DETERMINISTIC ONBOARDING CHECK
+    t("CHECKING_ONBOARDING");
     const onboarding = await processOnboardingStep(sql, input.tenantId, input.messageText);
+    t("ONBOARDING_STATUS:" + onboarding.completed);
+
     if (!onboarding.completed) {
+      t("ONBOARDING_INCOMPLETE_EXIT");
       return {
         responseText: onboarding.response,
         responseType: "onboarding",
@@ -45,26 +51,35 @@ export async function runStaffLoop(
     }
 
     // 2. DETERMINISTIC STATE FETCH
+    t("FETCHING_PROFILE");
     const [profile] = await sql<EmployabilityProfile[]>`
       SELECT business_name, tone_profile, response_style, escalation_contact, working_hours 
       FROM employer_profiles WHERE tenant_id = ${input.tenantId}
     `;
+    t("PROFILE_FETCHED:" + !!profile);
 
+    t("FETCHING_CUSTOMER_STATE");
     const [state] = await sql`SELECT last_customer_need, current_goal FROM customer_memory WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}`;
+    t("STATE_FETCHED:" + !!state);
+
+    t("FETCHING_FACTS");
     const facts = await sql`SELECT key, value FROM business_facts WHERE tenant_id = ${input.tenantId} LIMIT 20`;
+    t("FACTS_FETCHED:" + facts.length);
     
     // 3. BUSINESS BRIEF ASSEMBLY
+    t("ASSEMBLING_BRIEF");
     const businessBrief = [
       `Business Knowledge: Last goal was ${state?.current_goal || 'none'}`,
       ...facts.map(f => `${f.key}: ${JSON.stringify(f.value)}`)
     ].join("\n");
-    console.log("[STAFF_LOOP] BUSINESS_CONTEXT_READY");
 
     // 4. CONVERSATIONAL RENDERING (Probabilistic Proposal)
+    t("CALLING_LLM");
     const proposedDecision = await generateStaffReply(input.messageText, businessBrief, profile || { business_name: "The Shop" });
-    console.log("[STAFF_LOOP] STAFF_DECISION", proposedDecision);
+    t("LLM_REPLIED:" + proposedDecision.confidence);
 
     // 5. DETERMINISTIC RULE ENGINE (Operational Authority)
+    t("VALIDATING_ACTION");
     const validatedAction = validateStaffAction(
       { 
         type: proposedDecision.suggested_action.type,
@@ -79,9 +94,9 @@ export async function runStaffLoop(
         llmConfidence: proposedDecision.confidence 
       }
     );
-    console.log("[STAFF_LOOP] VALIDATED_ACTION", validatedAction);
 
     // 6. DETERMINISTIC POST-PROCESSING (Sanitization & Price Lock)
+    t("SANITIZING_REPLY");
     const { sanitizedReply, actionOverride } = sanitizeStaffReply(proposedDecision.response, facts);
 
     const finalDecision: StaffDecision = {
@@ -92,9 +107,12 @@ export async function runStaffLoop(
     };
 
     // 7. EXECUTION
+    t("EXECUTING_DECISION");
     const outcome = await executeStaffDecision(sql, input.tenantId, input.senderPhone, finalDecision, input.correlationId);
+    t("EXECUTION_DONE");
 
     // 8. PERSISTENCE
+    t("COMMITTING_EVENT");
     await commitEvent(sql, {
       id: randomUUID(),
       type: "STAFF_ACTION_TAKEN",
@@ -105,9 +123,10 @@ export async function runStaffLoop(
       },
       tenantId: input.tenantId,
       correlationId: input.correlationId,
-      causationId: input.eventId, // The current event is the causation for this action
+      causationId: input.eventId,
     });
 
+    t("LOOP_SUCCESS");
     return {
       responseText: finalDecision.response,
       responseType: "conversation",
@@ -117,6 +136,7 @@ export async function runStaffLoop(
     };
 
   } catch (err) {
+    t("LOOP_FATAL_ERROR:" + String(err));
     console.error("STAFF_LOOP_CRASH", err);
     return {
       responseText: "Sorry, I'm having a bit of trouble. Let me check that for you.",
@@ -127,5 +147,3 @@ export async function runStaffLoop(
     };
   }
 }
-
-
