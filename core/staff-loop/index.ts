@@ -12,13 +12,13 @@ import { generateStaffReply } from "../../services/response-service/index.js";
 import { commitEvent } from "../../infrastructure/database/index.js";
 import { executeStaffDecision } from "../../services/employment-logic/index.js";
 
-console.log("[STAFF_LOOP] MODULE_LOADED");
+console.error("[STAFF_LOOP] MODULE_LOADED");
 
 /**
  * core/staff-loop/index.ts
  *
  * THE STAFF LOOP (Authority Model v1.1)
- * HARD TRACING BUILD — isolates exact failure in orchestration.
+ * HARD TRACING BUILD — using console.error to bypass Vercel buffering.
  */
 
 export async function runStaffLoop(
@@ -26,13 +26,11 @@ export async function runStaffLoop(
   sql: postgres.Sql,
   config: { apiKey: string; provider: string }
 ): Promise<StaffLoopResult> {
-  console.log("[STAFF_LOOP] FUNCTION_ENTER");
+  console.error("[STAFF_LOOP] FUNCTION_ENTER", { tenantId: input.tenantId });
   
   const start = Date.now();
-  const trace: string[] = [];
   const t = (m: string) => { 
-    trace.push(`[${Date.now() - start}ms] ${m}`); 
-    console.log(`[STAFF_LOOP_TRACE] ${m}`);
+    console.error(`[STAFF_LOOP_TRACE] [${Date.now() - start}ms] ${m}`);
   };
 
   t("START_LOOP");
