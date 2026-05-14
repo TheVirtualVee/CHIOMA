@@ -20,7 +20,8 @@ export async function runAtomicStaffLoop(
   const start = Date.now();
   const aggregateId = `conv_${input.senderPhone}`;
   const correlationId = input.correlationId;
-  const workerId = input.traceContext.workerId;
+  // ASSERT: traceContext optional — prevent crash before acquireLease when absent
+  const workerId = input.traceContext?.workerId ?? ("worker_" + input.messageId.slice(0, 8));
   telemetry.record("ATOMIC_RUNNER_STARTED", { aggregateId, correlationId });
 
   // Acquire concurrency lease with fencing token
@@ -74,7 +75,19 @@ export async function runAtomicStaffLoop(
       const loopResult = await runStaffLoop(input, tx, config, profile);
       telemetry.record("INFERENCE_COMPLETED", { latencyMs: loopResult.latencyMs });
       
-      if (!loopResult.decision) throw new Error("COGNITION_FAILURE: LLM failed to produce a decision.");
+      // ASSERT: return fallback instead of throw — throw kills the TX and
+      // returns degraded text that never reaches delivery when phoneNumberId is also missing.
+      if (!loopResult.decision) {
+        telemetry.record("COGNITION_FALLBACK", { reason: "LLM_NO_DECISION" });
+        await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
+        return {
+          responseText: "Thanks for your message! I'm looking into that for you.",
+          responseType: "error_degraded" as const,
+          delivered: false,
+          latencyMs: Date.now() - start,
+          correlationId,
+        };
+      }
 
       telemetry.record("CONSTITUTION_VALIDATED");
       const audit = enforceEmployeePsychology(loopResult.decision.response_payload);

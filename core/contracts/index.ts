@@ -9,7 +9,7 @@ export interface StaffLoopInput {
   causationId: string;
   eventId: string;
   channel: "whatsapp" | "simulation";
-  traceContext: TraceContext;
+  traceContext?: TraceContext; // Optional — fallback created if absent
 }
 
 export interface StaffLoopResult {

@@ -134,7 +134,9 @@ export default async function handler(req: any, res: any) {
 
         // ── Dispatch Response ────────────────────────────────────────────
         if (result.responseText) {
-          const phoneNumberId = value.metadata?.phone_number_id as string | undefined;
+          // ASSERT: Meta omits metadata in status/reaction events — env var fallback
+          const phoneNumberId = (value.metadata?.phone_number_id as string | undefined)
+            ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
           if (phoneNumberId) {
             telemetry.record("WHATSAPP_DISPATCH_STARTING");
             try {
