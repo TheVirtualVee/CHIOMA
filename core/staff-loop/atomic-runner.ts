@@ -11,9 +11,12 @@ export async function runAtomicStaffLoop(
   config: { apiKey: string; provider: string }
 ): Promise<StaffLoopResult> {
   const start = Date.now();
+  const l = (m: string) => console.log(`[ATOMIC_RUNNER] [${Date.now() - start}ms] ${m}`);
 
   try {
     const result = await sql.begin(async (tx: any) => {
+      l("TRANSACTION_START");
+
       await tx`
         UPDATE message_ledger 
         SET status = 'PROCESSING', 
@@ -25,6 +28,7 @@ export async function runAtomicStaffLoop(
       const onboarding = await processOnboardingStep(tx, input.tenantId, input.messageText);
       if (!onboarding.completed) {
         await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
+        l("ONBOARDING_IN_PROGRESS_FINALIZED");
         return {
           responseText: onboarding.response,
           responseType: "onboarding",
@@ -53,6 +57,7 @@ export async function runAtomicStaffLoop(
       let loopResult: StaffLoopResult;
 
       if (existingEvent.length > 0) {
+        l("REPLAY_DETERMINISM_HIT");
         const cached = existingEvent[0].payload;
         loopResult = {
           responseText: cached.response_payload || cached.text,
@@ -63,6 +68,7 @@ export async function runAtomicStaffLoop(
           decision: { ...cached, source: "REPLAY" }
         };
       } else {
+        l("COGNITION_LOOP_START");
         loopResult = await runStaffLoop(input, tx, config, profile);
         
         if (loopResult.decision) {
@@ -78,6 +84,7 @@ export async function runAtomicStaffLoop(
       }
 
       if (loopResult.decision) {
+        l("SIDE_EFFECTS_START");
         await executeStaffDecision(tx, input.tenantId, input.senderPhone, loopResult.decision, input.correlationId);
       }
 
@@ -88,12 +95,14 @@ export async function runAtomicStaffLoop(
         WHERE message_id = ${input.messageId}
       `;
 
+      l("TRANSACTION_COMMIT");
       return loopResult;
     });
 
     return result;
 
   } catch (error: any) {
+    console.error(`[ATOMIC_RUNNER] TRANSACTION_FAILURE: ${error.message}`);
     try {
       await sql`
         UPDATE message_ledger 

@@ -15,6 +15,7 @@ export async function runStaffLoop(
   profile: EmployabilityProfile
 ): Promise<StaffLoopResult> {
   const start = Date.now();
+  const t = (m: string) => console.log(`[STAFF_LOOP_TRACE] [${Date.now() - start}ms] ${m}`);
   
   try {
     const [state]: any[] = await sql`SELECT last_customer_need, current_goal FROM customer_memory WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}`;
@@ -25,6 +26,7 @@ export async function runStaffLoop(
       ...facts.map((f: { key: string; value: any }) => `${f.key}: ${JSON.stringify(f.value)}`)
     ].join("\n");
 
+    t("LLM_INVOCATION_START");
     const proposed = await generateStaffReply(input.messageText, businessBrief, profile);
     
     const validatedAction = validateStaffAction(
@@ -65,6 +67,7 @@ export async function runStaffLoop(
     };
 
   } catch (err) {
+    console.error(`[STAFF_LOOP] COGNITION_FAILURE: ${err}`);
     return {
       responseText: "I'm having a bit of trouble. Let me check that for you.",
       responseType: "error_degraded",

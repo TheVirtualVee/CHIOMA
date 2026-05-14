@@ -4,7 +4,7 @@ import { createDatabaseClient, commitEvent } from "../../../infrastructure/datab
 
 export default async function handler(req: any, res: any) {
   const start = Date.now();
-  const l = (m: string) => console.error(`[WEBHOOK] [${Date.now() - start}ms] ${m}`);
+  const l = (m: string) => console.log(`[WEBHOOK] [${Date.now() - start}ms] ${m}`);
 
   l("REQUEST_RECEIVED");
 
@@ -99,22 +99,23 @@ export default async function handler(req: any, res: any) {
             await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText);
             l("WHATSAPP_DISPATCH_SUCCESS");
           } catch (waErr: any) {
-            l("WHATSAPP_DISPATCH_FAILED: " + waErr.message);
+            console.error(`[WEBHOOK] WHATSAPP_DISPATCH_FAILED: ${waErr.message}`);
           }
         }
       }
 
+      l("LIFECYCLE_COMPLETE");
       return res.status(200).json({ ok: true });
 
     } catch (innerErr) {
-      l("INNER_SHELL_FAILURE: " + String(innerErr));
+      console.error(`[WEBHOOK] INNER_SHELL_FAILURE: ${innerErr}`);
       return res.status(200).json({ ok: false, error: "Internal processing failure" });
     } finally {
       await sql.end();
     }
 
   } catch (outerErr) {
-    l("OUTER_SHELL_FAILURE: " + String(outerErr));
+    console.error(`[WEBHOOK] OUTER_SHELL_FAILURE: ${outerErr}`);
     return res.status(200).json({ ok: false, error: "Ingress failure" });
   }
 }
