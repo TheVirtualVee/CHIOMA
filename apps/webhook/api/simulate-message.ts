@@ -33,7 +33,7 @@ export default async function handler(req: any, res: any) {
     const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
     try {
-      // 1. Commit Ingress Event
+      // 1. Commit Ingress Event (PENDING)
       await commitEvent(sql, {
         id: eventId,
         type: "MESSAGE_RECEIVED",
@@ -43,11 +43,13 @@ export default async function handler(req: any, res: any) {
         causationId,
       });
 
-      console.log("[SIMULATION] CALLING_RUNSTAFFLOOP");
+      console.log("[SIMULATION] CALLING_ATOMIC_STAFF_LOOP");
+      const { runAtomicStaffLoop } = await import("../../../core/staff-loop/atomic-runner.js");
 
-      // 2. Execute Staff Loop
-      const result = await runStaffLoop(
+      // 2. Execute Atomic Staff Loop
+      const result = await runAtomicStaffLoop(
         {
+          messageId,
           tenantId: normalisedTenantId,
           senderPhone: from,
           messageText: text.trim(),
@@ -72,13 +74,14 @@ export default async function handler(req: any, res: any) {
 
     } catch (err) {
       console.error("[SIMULATION] INNER_ERROR", err);
-      return res.status(500).json({ ok: false, error: String(err) });
+      // Even in simulation, we return 200 with an error object to prevent 500 leakage
+      return res.status(200).json({ ok: false, error: "Simulation failed: " + String(err) });
     } finally {
       await sql.end();
     }
 
   } catch (err) {
     console.error("[SIMULATION] OUTER_ERROR", err);
-    return res.status(500).json({ ok: false, error: String(err) });
+    return res.status(200).json({ ok: false, error: "Ingress failed: " + String(err) });
   }
 }

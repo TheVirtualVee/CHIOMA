@@ -1,44 +1,25 @@
-import { randomUUID } from "node:crypto";
-import type postgres from "postgres";
+import { randomUUID, createHash } from "node:crypto";
 import { 
   StaffLoopInput, 
   StaffLoopResult,
   EmployabilityProfile,
-  StaffDecision
+  StaffDecision,
+  StaffAction
 } from "../contracts/index.js";
 import { validateStaffAction, sanitizeStaffReply } from "../staff-rules/index.js";
 import { processOnboardingStep } from "../../services/onboarding-service/index.js";
 import { generateStaffReply } from "../../services/response-service/index.js";
-import { commitEvent } from "../../infrastructure/database/index.js";
-import { executeStaffDecision } from "../../services/employment-logic/index.js";
-
-console.error("[STAFF_LOOP] MODULE_LOADED");
-
-/**
- * core/staff-loop/index.ts
- *
- * THE STAFF LOOP (Authority Model v1.2)
- * HARDENED SHELL — Zero-Throw Policy.
- * Every error returns a safe staff-style fallback instead of a crash.
- */
 
 export async function runStaffLoop(
   input: StaffLoopInput,
-  sql: postgres.Sql,
+  sql: any,
   config: { apiKey: string; provider: string }
 ): Promise<StaffLoopResult> {
   const start = Date.now();
-  const t = (m: string) => console.error(`[STAFF_LOOP_TRACE] [${Date.now() - start}ms] ${m}`);
-
-  t("START_LOOP");
-
+  
   try {
-    // 1. DETERMINISTIC ONBOARDING CHECK
-    t("CHECKING_ONBOARDING");
     const onboarding = await processOnboardingStep(sql, input.tenantId, input.messageText);
-    
     if (!onboarding.completed) {
-      t("ONBOARDING_INCOMPLETE_EXIT");
       return {
         responseText: onboarding.response,
         responseType: "onboarding",
@@ -48,89 +29,73 @@ export async function runStaffLoop(
       };
     }
 
-    // 2. DETERMINISTIC STATE FETCH
-    t("FETCHING_CONTEXT");
-    const [profile] = await sql<EmployabilityProfile[]>`
+    const [profile]: (EmployabilityProfile | undefined)[] = await sql`
       SELECT business_name, tone_profile, response_style, escalation_contact, working_hours 
       FROM employer_profiles WHERE tenant_id = ${input.tenantId}
     `;
 
-    const [state] = await sql`SELECT last_customer_need, current_goal FROM customer_memory WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}`;
-    const facts = await sql`SELECT key, value FROM business_facts WHERE tenant_id = ${input.tenantId} LIMIT 20`;
+    const [state]: any[] = await sql`SELECT last_customer_need, current_goal FROM customer_memory WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}`;
+    const facts: { key: string; value: any }[] = await sql`SELECT key, value FROM business_facts WHERE tenant_id = ${input.tenantId} LIMIT 20`;
     
-    // 3. BUSINESS BRIEF ASSEMBLY
     const businessBrief = [
       `Business Knowledge: Last goal was ${state?.current_goal || 'none'}`,
-      ...facts.map(f => `${f.key}: ${JSON.stringify(f.value)}`)
+      ...facts.map((f: { key: string; value: any }) => `${f.key}: ${JSON.stringify(f.value)}`)
     ].join("\n");
 
-    // 4. CONVERSATIONAL RENDERING (Probabilistic Proposal)
-    t("CALLING_LLM");
-    let finalDecision: StaffDecision;
-    try {
-      const proposedDecision = await generateStaffReply(input.messageText, businessBrief, profile || { business_name: "The Shop" });
-      
-      // 5. DETERMINISTIC RULE ENGINE (Operational Authority)
-      const validatedAction = validateStaffAction(
-        { 
-          type: proposedDecision.suggested_action.type,
-          urgency: proposedDecision.suggested_action.urgency,
-          revenue_weight: proposedDecision.suggested_action.revenue_weight,
-          need_classification: proposedDecision.suggested_action.need_classification
-        },
-        { currentTime: new Date(), profile, customerState: state, llmConfidence: proposedDecision.confidence }
-      );
+    const proposed = await generateStaffReply(input.messageText, businessBrief, profile || { 
+      business_name: "The Shop", 
+      tone_profile: "friendly-shopkeeper", 
+      response_style: "helpful",
+      escalation_contact: "System",
+      working_hours: "24/7"
+    } as EmployabilityProfile);
+    
+    const validatedAction = validateStaffAction(
+      { 
+        type: proposed.suggested_action.type,
+        urgency: proposed.suggested_action.urgency,
+        revenue_weight: proposed.suggested_action.revenue_weight,
+        need_classification: proposed.suggested_action.need_classification
+      },
+      { 
+        currentTime: new Date(), 
+        profile: profile || { 
+          business_name: "The Shop", 
+          tone_profile: "friendly-shopkeeper", 
+          response_style: "helpful",
+          escalation_contact: "System",
+          working_hours: "24/7"
+        } as EmployabilityProfile, 
+        customerState: state, 
+        llmConfidence: proposed.confidence 
+      }
+    );
 
-      // 6. DETERMINISTIC POST-PROCESSING (Sanitization & Price Lock)
-      const { sanitizedReply, actionOverride } = sanitizeStaffReply(proposedDecision.response, facts);
+    const { sanitizedReply, actionOverride } = sanitizeStaffReply(proposed.response, facts);
 
-      finalDecision = {
-        response: sanitizedReply,
-        customer_need: proposedDecision.customer_need,
-        action: actionOverride ? { ...validatedAction, type: actionOverride, urgency: "HIGH" } : validatedAction,
-        confidence: proposedDecision.confidence
-      };
-    } catch (llmErr) {
-      t("LLM_FAILURE_FALLBACK:" + String(llmErr));
-      finalDecision = {
-        response: "I'm checking that for you right now. One moment please.",
-        customer_need: "UNKNOWN (System Failure)",
-        action: { type: "REPLY", urgency: "LOW", revenue_weight: 0, need_classification: "NO_REVENUE" },
-        confidence: 0
-      };
-    }
+    const decision: StaffDecision = {
+      intent_type: "UNKNOWN",
+      confidence: proposed.confidence,
+      response_payload: sanitizedReply,
+      required_actions: [actionOverride ? { ...validatedAction, type: actionOverride, urgency: "HIGH" } : validatedAction],
+      safety_flags: [],
+      source: "LLM",
+      customer_need: proposed.customer_need,
+      decision_hash: createHash("sha256").update(sanitizedReply + JSON.stringify(validatedAction)).digest("hex")
+    };
 
-    // 7. EXECUTION
-    t("EXECUTING_DECISION");
-    const outcome = await executeStaffDecision(sql, input.tenantId, input.senderPhone, finalDecision, input.correlationId);
-
-    // 8. PERSISTENCE
-    t("COMMITTING_EVENT");
-    await commitEvent(sql, {
-      id: randomUUID(),
-      type: "STAFF_ACTION_TAKEN",
-      payload: { text: finalDecision.response, action: finalDecision.action, outcome: outcome.outcome },
-      tenantId: input.tenantId,
-      correlationId: input.correlationId,
-      causationId: input.eventId,
-    });
-
-    t("LOOP_SUCCESS");
     return {
-      responseText: finalDecision.response,
+      responseText: decision.response_payload,
       responseType: "conversation",
       delivered: false,
       latencyMs: Date.now() - start,
       correlationId: input.correlationId,
+      decision
     };
 
   } catch (err) {
-    t("LOOP_FATAL_ERROR:" + String(err));
-    console.error("[STAFF_LOOP_FATAL]", err);
-    // Even on FATAL (DB down etc), return a safe string. 
-    // The Webhook Shell will catch anything that escapes this.
     return {
-      responseText: "Sorry, I'm having a bit of trouble. Let me check that for you.",
+      responseText: "I'm having a bit of trouble. Let me check that for you.",
       responseType: "error_degraded",
       delivered: false,
       latencyMs: Date.now() - start,

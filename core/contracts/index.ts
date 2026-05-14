@@ -1,11 +1,5 @@
-/**
- * core/contracts/index.ts
- *
- * CHIOMA — The Single Employability Contract.
- * Collapses all architectural complexity into a single behavioral staff model.
- */
-
 export interface StaffLoopInput {
+  messageId: string;
   tenantId: string;
   senderPhone: string;
   messageText: string;
@@ -21,11 +15,9 @@ export interface StaffLoopResult {
   delivered: boolean;
   latencyMs: number;
   correlationId: string;
+  decision?: StaffDecision;
 }
 
-/**
- * The only personalization source allowed for the Digital Employee.
- */
 export interface EmployabilityProfile {
   business_name: string;
   tone_profile: "casual" | "formal" | "street-smart" | "luxury" | "friendly-shopkeeper";
@@ -40,19 +32,13 @@ export type EmployabilityMode =
   | "ONBOARDING_EMPLOYEE" 
   | "OFFLINE_ESCALATION_ONLY";
 
-/**
- * The deterministic staff action resulting from an interaction.
- */
 export interface StaffAction {
   type: "REPLY" | "ESCALATE" | "SCHEDULE_FOLLOWUP" | "IGNORE";
   urgency: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
-  revenue_weight: number; // 0.0 to 1.0
+  revenue_weight: number;
   need_classification: "REVENUE_NOW" | "REVENUE_SOON" | "NO_REVENUE" | "ESCALATION_REQUIRED";
 }
 
-/**
- * The inferred knowledge from social links before owner validation.
- */
 export interface BusinessDraft {
   name_guess: string;
   products_guess: string[];
@@ -63,29 +49,20 @@ export interface BusinessDraft {
   confidence_scores: Record<string, number>;
 }
 
-/**
- * The suggested staff action from the conversational layer (LLM).
- */
 export interface ProposedStaffDecision {
   response: string;
   customer_need: string;
-  suggested_action: {
-    type: "REPLY" | "ESCALATE" | "SCHEDULE_FOLLOWUP" | "IGNORE";
-    urgency: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
-    revenue_weight: number;
-    need_classification: "REVENUE_NOW" | "REVENUE_SOON" | "NO_REVENUE" | "ESCALATION_REQUIRED";
-  };
+  suggested_action: StaffAction;
   confidence: number;
 }
 
-/**
- * The validated staff decision from the deterministic layer.
- */
 export interface StaffDecision {
-  response: string;
-  customer_need: string;
-  action: StaffAction;
+  intent_type: "SALES" | "SUPPORT" | "COMPLAINT" | "INQUIRY" | "UNKNOWN";
   confidence: number;
+  response_payload: string;
+  required_actions: StaffAction[];
+  safety_flags: string[];
+  source: "LLM" | "RULE_OVERRIDE" | "REPLAY";
+  decision_hash?: string;
+  customer_need: string;
 }
-
-

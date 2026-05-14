@@ -1,14 +1,6 @@
 import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
 import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient, commitEvent } from "../../../infrastructure/database/index.js";
-import { runStaffLoop } from "../../../core/staff-loop/index.js";
-
-/**
- * api/webhook.ts
- *
- * CHIOMA WhatsApp Webhook Handler.
- * IDEMPOTENCY & ERROR DECODER BUILD (v1.3).
- */
 
 export default async function handler(req: any, res: any) {
   const start = Date.now();
@@ -28,8 +20,6 @@ export default async function handler(req: any, res: any) {
 
   try {
     const config = validateConfig();
-    
-    // 1. Validate Signature
     const signature = req.headers["x-hub-signature-256"] as string;
     const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
     
@@ -38,7 +28,6 @@ export default async function handler(req: any, res: any) {
       return res.status(401).json({ error: "Invalid signature" });
     }
 
-    // 2. Extract Meta Payload
     const entry = req.body?.entry?.[0];
     const value = entry?.changes?.[0]?.value;
     const messages = value?.messages;
@@ -60,39 +49,46 @@ export default async function handler(req: any, res: any) {
     const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
     try {
-      // 3. HARD IDEMPOTENCY: Try insert first. Catch unique violation.
-      try {
-        await sql`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
-        l("IDEMPOTENCY_LOCKED");
-      } catch (dbErr: any) {
-        if (dbErr.code === '23505') { // Postgres Unique Violation
-          l("DUPLICATE_EXIT_TRIGGERED");
+      const [existing] = await sql`SELECT status, updated_at FROM message_ledger WHERE message_id = ${messageId}`;
+
+      if (existing) {
+        if (existing.status === "COMPLETED") {
+          l("LEDGER_BLOCK: COMPLETED");
           return res.status(200).json({ ok: true, duplicate: true });
         }
-        throw dbErr;
+        
+        const lastUpdate = new Date(existing.updated_at).getTime();
+        if (existing.status === "PROCESSING" && (Date.now() - lastUpdate < 30000)) {
+          l("LEDGER_BLOCK: IN_PROGRESS");
+          return res.status(200).json({ ok: true, retry_ignored: true });
+        }
+        
+        await sql`UPDATE message_ledger SET status = 'PROCESSING', updated_at = NOW() WHERE message_id = ${messageId}`;
+      } else {
+        await sql`INSERT INTO message_ledger (message_id, tenant_id, status) VALUES (${messageId}, ${tenantId}, 'RECEIVED')`;
       }
+      l("LEDGER_LOCKED");
 
       const eventId = randomUUID();
+      const staffLoopInput = { 
+        messageId,
+        tenantId, 
+        senderPhone: from, 
+        messageText: text, 
+        correlationId, 
+        causationId: eventId, 
+        eventId, 
+        channel: "whatsapp" as const 
+      };
+
+      l("INVOKING_ATOMIC_STAFF_LOOP");
       
-      // 4. Commit Ingress Event
-      await commitEvent(sql, {
-        id: eventId,
-        type: "MESSAGE_RECEIVED",
-        payload: { channel: "whatsapp", from, text, waMessageId: messageId },
-        tenantId,
-        correlationId,
-        causationId: correlationId
+      const { runAtomicStaffLoop } = await import("../../../core/staff-loop/atomic-runner.js");
+      const result = await runAtomicStaffLoop(staffLoopInput, sql, { 
+        apiKey: config.LLM_API_KEY, 
+        provider: config.LLM_PROVIDER 
       });
 
-      l("INVOKING_STAFF_LOOP");
-      
-      const result = await runStaffLoop(
-        { tenantId, senderPhone: from, messageText: text, correlationId, causationId: eventId, eventId, channel: "whatsapp" },
-        sql,
-        { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
-      );
-
-      // 5. Dispatch with Error Decoding
       if (result.responseText) {
         const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
         const phoneNumberId = value.metadata?.phone_number_id;
@@ -104,7 +100,6 @@ export default async function handler(req: any, res: any) {
             l("WHATSAPP_DISPATCH_SUCCESS");
           } catch (waErr: any) {
             l("WHATSAPP_DISPATCH_FAILED: " + waErr.message);
-            // We still return 200 to Meta so they stop retrying a broken message
           }
         }
       }

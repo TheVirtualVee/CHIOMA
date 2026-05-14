@@ -1,4 +1,3 @@
-import { runSyncPipeline } from "../../core/runtime/index.js";
 import { createDatabaseClient } from "../../infrastructure/database/index.js";
 import { validateConfig } from "../../infrastructure/config/index.js";
 
@@ -54,18 +53,21 @@ export async function runChaosSimulation() {
 
     for (const step of scenario.steps) {
       const start = Date.now();
+      const messageId = `msg_chaos_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       const input = {
+        messageId,
         tenantId,
         senderPhone: step.sender,
         messageText: step.text,
         correlationId: `chaos_${Date.now()}`,
         eventId: `evt_chaos_${Date.now()}`,
-        causationId: `evt_chaos_${Date.now()}`, // Added to satisfy contract
+        causationId: `evt_chaos_${Date.now()}`,
         channel: "simulation" as const
       };
 
       try {
-        const result = await runSyncPipeline(input, sql, { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER });
+        const { runAtomicStaffLoop } = await import("../../core/staff-loop/atomic-runner.js");
+        const result = await runAtomicStaffLoop(input, sql, { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER });
         const latency = Date.now() - start;
         
         console.log(`[INPUT]: ${step.text}`);

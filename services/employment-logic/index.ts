@@ -1,64 +1,51 @@
-import type postgres from "postgres";
 import type { StaffDecision, StaffAction } from "../../core/contracts/index.js";
 
-/**
- * services/employment-logic/index.ts
- *
- * STAFF DECISION CONSEQUENCES.
- * Executes the business outcome of a staff decision.
- */
-
 export async function executeStaffDecision(
-  sql: postgres.Sql,
+  sql: any,
   tenantId: string,
   customerPhone: string,
   decision: StaffDecision,
   correlationId: string
 ): Promise<{ outcome: string }> {
-  const action = decision.action;
+  for (const action of decision.required_actions) {
+    if (action.need_classification === "REVENUE_NOW" || action.need_classification === "REVENUE_SOON") {
+      await sql`
+        INSERT INTO customer_opportunities (tenant_id, correlation_id, customer_need, urgency, recommended_action, confidence)
+        VALUES (${tenantId}, ${correlationId}, ${decision.customer_need}, ${action.urgency}, ${action.type}, ${decision.confidence})
+        ON CONFLICT DO NOTHING
+      `;
+    }
 
-  // 1. Persist Customer Opportunity (formerly Revenue Signals)
-  if (action.need_classification === "REVENUE_NOW" || action.need_classification === "REVENUE_SOON") {
-    await sql`
-      INSERT INTO customer_opportunities (tenant_id, correlation_id, customer_need, urgency, recommended_action, confidence)
-      VALUES (${tenantId}, ${correlationId}, ${decision.customer_need}, ${action.urgency}, ${action.type}, ${decision.confidence})
-      ON CONFLICT DO NOTHING
-    `;
+    switch (action.type) {
+      case "ESCALATE":
+        await sql`
+          INSERT INTO owner_notifications (tenant_id, correlation_id, urgency, message_text)
+          VALUES (${tenantId}, ${correlationId}, ${action.urgency}, ${decision.response_payload})
+        `;
+        break;
+
+      case "SCHEDULE_FOLLOWUP":
+        await sql`
+          INSERT INTO follow_up_queue (tenant_id, correlation_id, status)
+          VALUES (${tenantId}, ${correlationId}, 'PENDING')
+        `;
+        break;
+    }
   }
 
-  // 2. Resolve Conversation Flow (formerly State Machine)
   await updateConversationFlow(sql, tenantId, customerPhone, decision);
-
-  // 3. Execute Staff Action
-  switch (action.type) {
-    case "ESCALATE":
-      await sql`
-        INSERT INTO owner_notifications (tenant_id, correlation_id, urgency, message_text)
-        VALUES (${tenantId}, ${correlationId}, ${action.urgency}, ${decision.response})
-      `;
-      return { outcome: "NOTIFIED_OWNER" };
-
-    case "SCHEDULE_FOLLOWUP":
-      await sql`
-        INSERT INTO follow_up_queue (tenant_id, correlation_id, status)
-        VALUES (${tenantId}, ${correlationId}, 'PENDING')
-      `;
-      return { outcome: "FOLLOW_UP_SCHEDULED" };
-
-    case "REPLY":
-    case "IGNORE":
-    default:
-      return { outcome: "REPLIED_AS_STAFF" };
-  }
+  return { outcome: "SUCCESS" };
 }
 
 async function updateConversationFlow(
-  sql: postgres.Sql,
+  sql: any,
   tenantId: string,
   customerPhone: string,
   decision: StaffDecision
 ) {
   const now = new Date().toISOString();
+  const primaryAction = decision.required_actions[0] || { type: "REPLY", need_classification: "NO_REVENUE" };
+  
   await sql`
     INSERT INTO customer_memory (
       tenant_id, 
@@ -72,9 +59,9 @@ async function updateConversationFlow(
       ${tenantId}, 
       ${customerPhone}, 
       ${decision.customer_need}, 
-      ${decision.action.type}, 
-      ${decision.action.need_classification === 'REVENUE_NOW' ? 'WARM' : 'COLD'},
-      ${sql.json([{ customer_need: decision.customer_need, action: decision.action.type, timestamp: now }])}
+      ${primaryAction.type}, 
+      ${primaryAction.need_classification === 'REVENUE_NOW' ? 'WARM' : 'COLD'},
+      ${sql.json([{ customer_need: decision.customer_need, action: primaryAction.type, timestamp: now }])}
     )
     ON CONFLICT (tenant_id, customer_phone) DO UPDATE SET
       last_customer_need = EXCLUDED.last_customer_need,
@@ -94,4 +81,3 @@ async function updateConversationFlow(
       updated_at = CURRENT_TIMESTAMP
   `;
 }
-

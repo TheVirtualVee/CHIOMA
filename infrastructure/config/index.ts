@@ -1,10 +1,3 @@
-/**
- * infrastructure/config/index.ts
- *
- * Environment validation and access.
- * CHIOMA fails fast if critical configuration is missing.
- */
-
 import { z } from "zod";
 
 const ConfigSchema = z.object({

@@ -1,13 +1,6 @@
 import type postgres from "postgres";
 import { generateBusinessDraft, formatDraftForEmployer } from "../business-learning/index.js";
 
-/**
- * services/onboarding-service/index.ts
- *
- * THE EMPLOYER TRAINING LOOP.
- * 1. Social Learning (Links) -> 2. Business Learning (Draft) -> 3. Employer Correction -> 4. Staff Knowledge Lock.
- */
-
 const ONBOARDING_STEPS = [
   { key: "business_name", question: "Hello! I'm CHIOMA. What is the name of your business?" },
   { key: "social_learning", question: "Nice! Please send me links to your Instagram, TikTok, or Website so I can learn about your products, tone, and pricing." },
@@ -16,48 +9,37 @@ const ONBOARDING_STEPS = [
 ];
 
 export async function processOnboardingStep(
-  sql: postgres.Sql,
+  sql: any,
   tenantId: string,
   messageText: string
 ): Promise<{ completed: boolean; response: string }> {
-  console.log("[ONBOARDING] START", { tenantId });
-  
   try {
-    console.log("[ONBOARDING] FETCHING_PROFILE");
     const [profile] = await sql`
       SELECT onboarding_status, current_onboarding_step FROM employer_profiles WHERE tenant_id = ${tenantId}
     `;
-    console.log("[ONBOARDING] PROFILE_RESULT", { exists: !!profile, status: profile?.onboarding_status });
 
     if (profile?.onboarding_status === 'COMPLETED') {
       return { completed: true, response: "" };
     }
 
-    // 1. Initial Greeting
     if (!profile) {
-      console.log("[ONBOARDING] INITIAL_GREETING_INSERT");
       await sql`
         INSERT INTO employer_profiles (tenant_id, onboarding_status, current_onboarding_step)
         VALUES (${tenantId}, 'STARTED', ${ONBOARDING_STEPS[0].key})
       `;
-      console.log("[ONBOARDING] GREETING_SENT");
       return { completed: false, response: ONBOARDING_STEPS[0].question };
     }
 
-  // 2. Process Answer & Advance
   const currentIndex = ONBOARDING_STEPS.findIndex(s => s.key === profile.current_onboarding_step);
   const currentStep = ONBOARDING_STEPS[currentIndex];
 
-  // Save the fact (Business Knowledge)
   await sql`
     INSERT INTO business_facts (tenant_id, key, value)
     VALUES (${tenantId}, ${currentStep.key}, ${sql.json({ value: messageText })})
     ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value
   `;
 
-  // SPECIAL LOGIC: Social Learning -> Business Draft Generation
   if (currentStep.key === "social_learning") {
-    // In Phase 1: Lightweight extraction only from employer-provided links.
     const draft = await generateBusinessDraft([`Simulated learning from: ${messageText}`]);
     const validationMessage = formatDraftForEmployer(draft);
     
@@ -69,11 +51,9 @@ export async function processOnboardingStep(
     return { completed: false, response: validationMessage };
   }
 
-  // SPECIAL LOGIC: Employer Correction Loop
   if (currentStep.key === "validate_draft") {
     const isAffirmative = /^(yes|correct|good|perfect|yep|ok)/i.test(messageText);
     if (!isAffirmative) {
-      // Treat as correction - append to business facts for further learning
       await sql`
         INSERT INTO business_facts (tenant_id, key, value)
         VALUES (${tenantId}, 'employer_correction', ${sql.json({ correction: messageText, timestamp: new Date() })})
@@ -82,7 +62,6 @@ export async function processOnboardingStep(
     }
   }
 
-  // Advance to next step
   const nextStep = ONBOARDING_STEPS[currentIndex + 1];
   if (nextStep) {
     await sql`
@@ -94,7 +73,6 @@ export async function processOnboardingStep(
     return { completed: false, response: nextStep.question };
   }
 
-  // 3. Finalize Staff Training
   await sql`
     UPDATE employer_profiles 
     SET onboarding_status = 'COMPLETED', 
@@ -113,4 +91,3 @@ export async function processOnboardingStep(
     throw err;
   }
 }
-

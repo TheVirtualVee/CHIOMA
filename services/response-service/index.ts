@@ -1,13 +1,6 @@
 import { z } from "zod";
 import type { ProposedStaffDecision } from "../../core/contracts/index.js";
 
-/**
- * services/response-service/index.ts
- *
- * STAFF CONVERSATIONAL RENDERER.
- * Generates how CHIOMA speaks, but does not govern operational authority.
- */
-
 const ProposedStaffDecisionSchema = z.object({
   response: z.string().min(1),
   customer_need: z.string(),
@@ -66,7 +59,7 @@ Return ONLY JSON:
         { role: "system", content: staffInstructions },
         { role: "user", content: message },
       ],
-      temperature: 0.1, // Slight variance for conversational fluidity
+      temperature: 0.1,
       response_format: { type: "json_object" },
     }),
   });
@@ -78,5 +71,3 @@ Return ONLY JSON:
   
   return ProposedStaffDecisionSchema.parse(JSON.parse(rawContent)) as ProposedStaffDecision;
 }
-
-

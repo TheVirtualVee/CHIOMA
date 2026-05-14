@@ -1,12 +1,5 @@
 import postgres from "postgres";
 
-/**
- * infrastructure/database/index.ts
- *
- * Primary database client for CHIOMA.
- * Ensures consistent connection parameters and SSL requirements.
- */
-
 export function createDatabaseClient(url: string, options: { max?: number } = {}) {
   if (!url || !url.startsWith("postgres")) {
     throw new Error("DATABASE_URL_INVALID");
@@ -20,10 +13,6 @@ export function createDatabaseClient(url: string, options: { max?: number } = {}
   });
 }
 
-/**
- * Event Log persistence contract.
- * Supports both standard Sql and TransactionSql.
- */
 export async function commitEvent(
   sql: any,
   event: {
@@ -48,9 +37,15 @@ export async function commitEvent(
   `;
 }
 
-/**
- * Retrieve recent events for a tenant.
- */
+export async function updateEvent(sql: any, eventId: string, payload: any) {
+  await sql`
+    UPDATE core.events 
+    SET payload = payload || ${sql.json(payload)},
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ${eventId}
+  `;
+}
+
 export async function getEventsForTenant(sql: any, tenantId: string, limit: number = 50) {
   return await sql`
     SELECT * FROM core.events 
