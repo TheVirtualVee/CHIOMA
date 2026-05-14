@@ -44,7 +44,7 @@ export async function sendWhatsAppMessage(
   console.log("[WHATSAPP] RESPONSE", raw);
 
   if (!response.ok) {
-    console.error("[WHATSAPP] DELIVERY_FAILED");
-    throw new Error(`WHATSAPP_API_FAILURE: ${response.status}`);
+    console.error("[WHATSAPP] DELIVERY_FAILED", raw);
+    throw new Error(`WHATSAPP_API_FAILURE [${response.status}]: ${raw}`);
   }
 }

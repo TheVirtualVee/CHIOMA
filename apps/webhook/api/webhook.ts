@@ -7,7 +7,7 @@ import { runStaffLoop } from "../../../core/staff-loop/index.js";
  * api/webhook.ts
  *
  * CHIOMA WhatsApp Webhook Handler.
- * EXECUTION GUARANTEE LAYER (No-500 Policy).
+ * IDEMPOTENCY & ERROR DECODER BUILD (v1.3).
  */
 
 export default async function handler(req: any, res: any) {
@@ -16,7 +16,6 @@ export default async function handler(req: any, res: any) {
 
   l("REQUEST_RECEIVED");
 
-  // 1. Handshake (GET)
   if (req.method === "GET") {
     const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
     if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === verifyToken) {
@@ -30,7 +29,7 @@ export default async function handler(req: any, res: any) {
   try {
     const config = validateConfig();
     
-    // 2. Validate Signature
+    // 1. Validate Signature
     const signature = req.headers["x-hub-signature-256"] as string;
     const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
     
@@ -39,7 +38,7 @@ export default async function handler(req: any, res: any) {
       return res.status(401).json({ error: "Invalid signature" });
     }
 
-    // 3. Extract Meta Payload
+    // 2. Extract Meta Payload
     const entry = req.body?.entry?.[0];
     const value = entry?.changes?.[0]?.value;
     const messages = value?.messages;
@@ -53,7 +52,7 @@ export default async function handler(req: any, res: any) {
     const text = message.text?.body || "";
     const messageId = message.id;
 
-    l("PROCESSING_MESSAGE: " + from);
+    l("IDEMPOTENCY_INIT: " + messageId);
 
     const tenantId = `tenant_${value.metadata?.phone_number_id || "default"}`;
     const correlationId = `corr_${messageId}`;
@@ -61,74 +60,67 @@ export default async function handler(req: any, res: any) {
     const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
     try {
-      // 4. Idempotency Check
-      const [existing] = await sql`SELECT message_id FROM processed_messages WHERE message_id = ${messageId}`;
-      if (existing) {
-        l("DUPLICATE_SKIP");
-        return res.status(200).json({ ok: true, duplicate: true });
+      // 3. HARD IDEMPOTENCY: Try insert first. Catch unique violation.
+      try {
+        await sql`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
+        l("IDEMPOTENCY_LOCKED");
+      } catch (dbErr: any) {
+        if (dbErr.code === '23505') { // Postgres Unique Violation
+          l("DUPLICATE_EXIT_TRIGGERED");
+          return res.status(200).json({ ok: true, duplicate: true });
+        }
+        throw dbErr;
       }
 
       const eventId = randomUUID();
       
-      // 5. Commit Ingress Event
-      await sql.begin(async (tx: any) => {
-        await tx`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
-        await commitEvent(tx, {
-          id: eventId,
-          type: "MESSAGE_RECEIVED",
-          payload: { channel: "whatsapp", from, text, waMessageId: messageId },
-          tenantId,
-          correlationId,
-          causationId: correlationId
-        });
+      // 4. Commit Ingress Event
+      await commitEvent(sql, {
+        id: eventId,
+        type: "MESSAGE_RECEIVED",
+        payload: { channel: "whatsapp", from, text, waMessageId: messageId },
+        tenantId,
+        correlationId,
+        causationId: correlationId
       });
 
       l("INVOKING_STAFF_LOOP");
       
-      // 6. Execute Staff Loop (Guaranteed Return)
       const result = await runStaffLoop(
-        { 
-          tenantId, 
-          senderPhone: from, 
-          messageText: text, 
-          correlationId, 
-          causationId: eventId, 
-          eventId, 
-          channel: "whatsapp" 
-        },
+        { tenantId, senderPhone: from, messageText: text, correlationId, causationId: eventId, eventId, channel: "whatsapp" },
         sql,
         { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
       );
 
-      l("STAFF_LOOP_COMPLETE: " + result.responseType);
-
-      // 7. Dispatch Outbound Message
+      // 5. Dispatch with Error Decoding
       if (result.responseText) {
         const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
         const phoneNumberId = value.metadata?.phone_number_id;
         
         if (phoneNumberId) {
-          l("DISPATCHING_WHATSAPP_REPLY");
-          await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText);
-          l("DISPATCH_SUCCESS");
+          l("WHATSAPP_DISPATCH_START");
+          try {
+            await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText);
+            l("WHATSAPP_DISPATCH_SUCCESS");
+          } catch (waErr: any) {
+            l("WHATSAPP_DISPATCH_FAILED: " + waErr.message);
+            // We still return 200 to Meta so they stop retrying a broken message
+          }
         }
       }
 
-      l("FLOW_COMPLETED_SUCCESSFULLY");
       return res.status(200).json({ ok: true });
 
     } catch (innerErr) {
-      l("INNER_FAILURE: " + String(innerErr));
-      // Even if DB or Dispatch fails, we return 200 to acknowledge Meta
-      return res.status(200).json({ ok: false, error: "Internal processing error" });
+      l("INNER_SHELL_FAILURE: " + String(innerErr));
+      return res.status(200).json({ ok: false, error: "Internal processing failure" });
     } finally {
       await sql.end();
     }
 
   } catch (outerErr) {
-    l("OUTER_FAILURE: " + String(outerErr));
-    // NO 500 POLICY: Always return 200 with an error flag
-    return res.status(200).json({ ok: false, error: "Configuration or Ingress failure" });
+    l("OUTER_SHELL_FAILURE: " + String(outerErr));
+    return res.status(200).json({ ok: false, error: "Ingress failure" });
   }
 }
 
