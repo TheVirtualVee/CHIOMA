@@ -65,6 +65,19 @@
           "tsconfig.json"
         ]
       }
+    },
+    {
+      "src": "apps/webhook/api/debug-loop.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "core/**",
+          "infrastructure/**",
+          "services/**",
+          "package.json",
+          "tsconfig.json"
+        ]
+      }
     }
   ],
   "routes": [
@@ -72,6 +85,7 @@
     { "src": "/api/webhook",          "dest": "apps/webhook/api/webhook.ts" },
     { "src": "/api/simulate-message", "dest": "apps/webhook/api/simulate-message.ts" },
     { "src": "/api/demo",             "dest": "apps/webhook/api/demo.ts" },
-    { "src": "/api/admin/events",     "dest": "apps/webhook/api/admin/events.ts" }
+    { "src": "/api/admin/events",     "dest": "apps/webhook/api/admin/events.ts" },
+    { "src": "/api/debug-loop",       "dest": "apps/webhook/api/debug-loop.ts" }
   ]
 }
