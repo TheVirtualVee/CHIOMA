@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
 import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient } from "../../../infrastructure/database/index.js";
 import { runAtomicStaffLoop } from "../../../core/staff-loop/atomic-runner.js";
@@ -14,9 +14,7 @@ export default async function handler(req: any, res: any) {
   
   try {
     const workerId = `worker_${(typeof process !== 'undefined' ? process.env?.VERCEL_REGION : 'unknown') || "local"}`;
-    console.log(`[DIAGNOSTIC] Calling createTraceContext...`);
     const trace = createTraceContext(workerId);
-    console.log(`[DIAGNOSTIC] trace: ${JSON.stringify(trace)}`);
     
     // 1. GET: WhatsApp webhook verification challenge
     if (req.method === "GET") {
@@ -37,7 +35,6 @@ export default async function handler(req: any, res: any) {
     const messages = value?.messages;
     const messageId = messages?.[0]?.id || "unknown";
 
-    console.log(`[DIAGNOSTIC] Instantiating TelemetryManager [mid:${messageId}]`);
     const telemetry = new TelemetryManager(messageId, trace.traceId);
     telemetry.record("REQUEST_RECEIVED", { 
       method: req.method, 
@@ -45,9 +42,6 @@ export default async function handler(req: any, res: any) {
       executionId: trace.executionId 
     });
 
-    // 🧠 LIFECYCLE GUARD: Use a promise-based execution block to ensure we await EVERYTHING.
-    // This prevents Vercel from freezing the runtime early.
-    try {
     const config = validateConfig();
 
     // 3. Signature Validation
@@ -81,7 +75,7 @@ export default async function handler(req: any, res: any) {
     const correlationId = `corr_${messageId}`;
 
     // 5. Database & Atomic Runner Execution
-    const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 }); // max:1 to avoid pooling issues in serverless
+    const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
     try {
       // 🧠 GLOBAL TIMEOUT GUARD: Ensure we don't let the process hang indefinitely
@@ -139,7 +133,6 @@ export default async function handler(req: any, res: any) {
 
         // ── Dispatch Response ────────────────────────────────────────────
         if (result.responseText) {
-          // ASSERT: Meta omits metadata in status/reaction events — env var fallback
           const phoneNumberId = (value.metadata?.phone_number_id as string | undefined)
             ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
           if (phoneNumberId) {
@@ -182,7 +175,6 @@ export default async function handler(req: any, res: any) {
       telemetry.complete("FAILED");
       return res.status(200).json({ ok: false, error: msg });
     } finally {
-      // 🧠 Ensure DB connection is closed before returning
       await sql.end();
     }
 
