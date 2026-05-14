@@ -8,6 +8,8 @@
     "@chioma/infrastructure": "*",
     "@chioma/response-service": "*",
     "@chioma/onboarding-service": "*",
+    "@chioma/employment-logic": "*",
+    "@chioma/business-learning": "*",
     "postgres": "^3.4.9",
     "zod": "^3.23.8"
   },

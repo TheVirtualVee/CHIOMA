@@ -1,20 +1,23 @@
+import postgres from "postgres";
+
 /**
- * api/health.ts — Institutional Health Check
- * Returns deployment state, DB connectivity, and runtime version.
+ * api/health.ts — Operational health check.
+ * Static import of postgres — dynamic import causes bundler resolution issues.
  */
 export default async function handler(_req: any, res: any) {
   const DATABASE_URL = process.env.DATABASE_URL;
   let dbStatus = "unknown";
-  
+
   if (DATABASE_URL) {
+    let sql: ReturnType<typeof postgres> | null = null;
     try {
-      const { default: postgres } = await import("postgres");
-      const sql = postgres(DATABASE_URL, { max: 1, ssl: "require", connect_timeout: 5 });
+      sql = postgres(DATABASE_URL, { max: 1, ssl: "require", connect_timeout: 5 });
       await sql`SELECT 1`;
       dbStatus = "connected";
-      await sql.end();
-    } catch (err) {
+    } catch {
       dbStatus = "error";
+    } finally {
+      if (sql) await sql.end().catch(() => {});
     }
   } else {
     dbStatus = "missing_config";
@@ -27,7 +30,7 @@ export default async function handler(_req: any, res: any) {
     verifyTokenPresent: !!process.env.WHATSAPP_VERIFY_TOKEN,
     llmConfigured: !!process.env.LLM_API_KEY,
     db: dbStatus,
-    version: "v1.2-diagnostics",
+    version: "v1.3-stable",
     ts: new Date().toISOString(),
   });
 }

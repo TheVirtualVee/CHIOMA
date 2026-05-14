@@ -1,19 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient, commitEvent } from "../../../infrastructure/database/index.js";
-import { runStaffLoop } from "../../../core/staff-loop/index.js";
+import { runAtomicStaffLoop } from "../../../core/staff-loop/atomic-runner.js";
 
 /**
- * api/simulate-message.ts
+ * api/simulate-message.ts — Dev simulation endpoint.
  *
- * Dev-only simulation endpoint.
- * Mimics WhatsApp ingress and returns bot response in the HTTP body.
- * UPDATED: Now uses the authoritative runStaffLoop.
+ * All imports STATIC — dynamic import of atomic-runner was causing silent
+ * failures in Vercel's bundler (module not resolved at bundle time).
  */
 
 export default async function handler(req: any, res: any) {
   const start = Date.now();
-  
+
   try {
     const config = validateConfig();
 
@@ -33,7 +32,13 @@ export default async function handler(req: any, res: any) {
     const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
     try {
-      // 1. Commit Ingress Event (PENDING)
+      // Ensure ledger row so atomic-runner can update it
+      await sql`
+        INSERT INTO message_ledger (message_id, tenant_id, status)
+        VALUES (${messageId}, ${normalisedTenantId}, 'RECEIVED')
+        ON CONFLICT (message_id) DO NOTHING
+      `;
+
       await commitEvent(sql, {
         id: eventId,
         type: "MESSAGE_RECEIVED",
@@ -44,9 +49,7 @@ export default async function handler(req: any, res: any) {
       });
 
       console.log("[SIMULATION] CALLING_ATOMIC_STAFF_LOOP");
-      const { runAtomicStaffLoop } = await import("../../../core/staff-loop/atomic-runner.js");
 
-      // 2. Execute Atomic Staff Loop
       const result = await runAtomicStaffLoop(
         {
           messageId,
@@ -72,16 +75,17 @@ export default async function handler(req: any, res: any) {
         latencyMs: Date.now() - start,
       });
 
-    } catch (err) {
-      console.error("[SIMULATION] INNER_ERROR", err);
-      // Even in simulation, we return 200 with an error object to prevent 500 leakage
-      return res.status(200).json({ ok: false, error: "Simulation failed: " + String(err) });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[SIMULATION] INNER_ERROR", msg);
+      return res.status(200).json({ ok: false, error: msg });
     } finally {
       await sql.end();
     }
 
-  } catch (err) {
-    console.error("[SIMULATION] OUTER_ERROR", err);
-    return res.status(200).json({ ok: false, error: "Ingress failed: " + String(err) });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[SIMULATION] OUTER_ERROR", msg);
+    return res.status(200).json({ ok: false, error: msg });
   }
 }
