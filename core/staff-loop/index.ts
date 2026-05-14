@@ -1,39 +1,22 @@
-import { randomUUID, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 import { 
   StaffLoopInput, 
   StaffLoopResult,
   EmployabilityProfile,
-  StaffDecision,
-  StaffAction
+  StaffDecision
 } from "../contracts/index.js";
 import { validateStaffAction, sanitizeStaffReply } from "../staff-rules/index.js";
-import { processOnboardingStep } from "../../services/onboarding-service/index.js";
 import { generateStaffReply } from "../../services/response-service/index.js";
 
 export async function runStaffLoop(
   input: StaffLoopInput,
   sql: any,
-  config: { apiKey: string; provider: string }
+  config: { apiKey: string; provider: string },
+  profile: EmployabilityProfile
 ): Promise<StaffLoopResult> {
   const start = Date.now();
   
   try {
-    const onboarding = await processOnboardingStep(sql, input.tenantId, input.messageText);
-    if (!onboarding.completed) {
-      return {
-        responseText: onboarding.response,
-        responseType: "onboarding",
-        delivered: false,
-        latencyMs: Date.now() - start,
-        correlationId: input.correlationId,
-      };
-    }
-
-    const [profile]: (EmployabilityProfile | undefined)[] = await sql`
-      SELECT business_name, tone_profile, response_style, escalation_contact, working_hours 
-      FROM employer_profiles WHERE tenant_id = ${input.tenantId}
-    `;
-
     const [state]: any[] = await sql`SELECT last_customer_need, current_goal FROM customer_memory WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}`;
     const facts: { key: string; value: any }[] = await sql`SELECT key, value FROM business_facts WHERE tenant_id = ${input.tenantId} LIMIT 20`;
     
@@ -42,13 +25,7 @@ export async function runStaffLoop(
       ...facts.map((f: { key: string; value: any }) => `${f.key}: ${JSON.stringify(f.value)}`)
     ].join("\n");
 
-    const proposed = await generateStaffReply(input.messageText, businessBrief, profile || { 
-      business_name: "The Shop", 
-      tone_profile: "friendly-shopkeeper", 
-      response_style: "helpful",
-      escalation_contact: "System",
-      working_hours: "24/7"
-    } as EmployabilityProfile);
+    const proposed = await generateStaffReply(input.messageText, businessBrief, profile);
     
     const validatedAction = validateStaffAction(
       { 
@@ -59,13 +36,7 @@ export async function runStaffLoop(
       },
       { 
         currentTime: new Date(), 
-        profile: profile || { 
-          business_name: "The Shop", 
-          tone_profile: "friendly-shopkeeper", 
-          response_style: "helpful",
-          escalation_contact: "System",
-          working_hours: "24/7"
-        } as EmployabilityProfile, 
+        profile, 
         customerState: state, 
         llmConfidence: proposed.confidence 
       }

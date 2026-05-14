@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { runStaffLoop } from "./index.js";
 import { commitEvent } from "../../infrastructure/database/index.js";
 import { executeStaffDecision } from "../../services/employment-logic/index.js";
-import { StaffLoopInput, StaffLoopResult } from "../contracts/index.js";
+import { processOnboardingStep } from "../../services/onboarding-service/index.js";
+import { StaffLoopInput, StaffLoopResult, EmployabilityProfile } from "../contracts/index.js";
 
 export async function runAtomicStaffLoop(
   input: StaffLoopInput,
@@ -20,6 +21,27 @@ export async function runAtomicStaffLoop(
             payload = ${tx.json({ ...input })}
         WHERE message_id = ${input.messageId}
       `;
+
+      const onboarding = await processOnboardingStep(tx, input.tenantId, input.messageText);
+      if (!onboarding.completed) {
+        await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
+        return {
+          responseText: onboarding.response,
+          responseType: "onboarding",
+          delivered: false,
+          latencyMs: Date.now() - start,
+          correlationId: input.correlationId,
+        };
+      }
+
+      const [profile]: (EmployabilityProfile | undefined)[] = await tx`
+        SELECT business_name, tone_profile, response_style, escalation_contact, working_hours 
+        FROM employer_profiles WHERE tenant_id = ${input.tenantId}
+      `;
+
+      if (!profile) {
+        throw new Error("STATE_INCONSISTENCY: Onboarding marked completed but profile missing.");
+      }
 
       const existingEvent = await tx`
         SELECT payload FROM core.events 
@@ -41,7 +63,7 @@ export async function runAtomicStaffLoop(
           decision: { ...cached, source: "REPLAY" }
         };
       } else {
-        loopResult = await runStaffLoop(input, tx, config);
+        loopResult = await runStaffLoop(input, tx, config, profile);
         
         if (loopResult.decision) {
           await commitEvent(tx, {
