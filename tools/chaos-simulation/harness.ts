@@ -60,6 +60,7 @@ export async function runChaosSimulation() {
         messageText: step.text,
         correlationId: `chaos_${Date.now()}`,
         eventId: `evt_chaos_${Date.now()}`,
+        causationId: `evt_chaos_${Date.now()}`, // Added to satisfy contract
         channel: "simulation" as const
       };
 
