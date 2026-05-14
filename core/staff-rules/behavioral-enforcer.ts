@@ -23,6 +23,15 @@ const AI_DISCLOSURE_PATTERNS = [
   /\bi (?:was|am) (?:trained|programmed|designed)\b/i,
   /\blarge language model\b/i,
   /\bneural network\b/i,
+  /\bas an ai\b/i,
+  /\bi am a robot\b/i,
+];
+const ATTACHMENT_PATTERNS = [
+  /\bi (?:love|really like) (?:you|talking to you)\b/i,
+  /\byou(?:'re| are) my (?:friend|best friend|only friend)\b/i,
+  /\bi feel (?:close|connected) to you\b/i,
+  /\bi (?:miss|missed) you\b/i,
+  /\bcan we be (?:friends|more than friends)\b/i,
 ];
 const OVER_APOLOGY_PATTERNS = [
   /\bi(?:'m| am) (?:so |very |truly |deeply |really )?sorry/gi,
@@ -143,6 +152,17 @@ export function enforceEmployeePsychology(response: string): BehavioralAuditResu
       severity: "WARNING",
       detail: `${wordCount} words — exceeds recommended maximum of 150`,
     });
+  }
+
+  for (const pattern of ATTACHMENT_PATTERNS) {
+    if (pattern.test(corrected)) {
+      violations.push({
+        rule: "ATTACHMENT_SIMULATION",
+        severity: "BLOCK",
+        detail: `Prohibited emotional attachment detected: ${corrected.match(pattern)?.[0]}`,
+      });
+      corrected = corrected.replace(pattern, "[Operational Boundary Refined]");
+    }
   }
 
   corrected = corrected.replace(/\s{2,}/g, " ").trim();

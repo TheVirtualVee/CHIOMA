@@ -8,6 +8,7 @@ import {
 import { validateStaffAction, sanitizeStaffReply } from "../staff-rules/index.js";
 import { enforceEmployeePsychology } from "../staff-rules/behavioral-enforcer.js";
 import { generateStaffReply } from "../../services/response-service/index.js";
+import { enforceMemoryGovernance, createGovernedMemory } from "../memory/governance.js";
 
 export async function runStaffLoop(
   input: StaffLoopInput,
@@ -22,8 +23,15 @@ export async function runStaffLoop(
     const [state]: any[] = await sql`SELECT last_customer_need, current_goal FROM customer_memory WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}`;
     const facts: { key: string; value: any }[] = await sql`SELECT key, value FROM business_facts WHERE tenant_id = ${input.tenantId} LIMIT 20`;
     
+    // Governed Memory Scrubbing
+    const rawMemories = [
+      createGovernedMemory("last_customer_need", state?.last_customer_need || ""),
+      createGovernedMemory("current_goal", state?.current_goal || "")
+    ];
+    const governedMemories = enforceMemoryGovernance(rawMemories);
+
     const businessBrief = [
-      `Business Knowledge: Last goal was ${state?.current_goal || 'none'}`,
+      `Business Knowledge: Last goal was ${governedMemories.find(m => m.key === 'current_goal')?.value || 'none'}`,
       ...facts.map((f: { key: string; value: any }) => `${f.key}: ${JSON.stringify(f.value)}`)
     ].join("\n");
 

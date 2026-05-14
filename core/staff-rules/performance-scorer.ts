@@ -65,6 +65,10 @@ export function evaluateEmployeePerformance(
   // 4. PSYCHOLOGICAL LAYER (Identity & Trust)
   let psychologicalScore = 1.0;
   if (auditViolations.includes("IDENTITY_BREACH")) psychologicalScore = 0.0;
+  if (auditViolations.includes("ATTACHMENT_SIMULATION")) {
+    psychologicalScore = 0.1;
+    lawViolations.push("LAW_004_EMOTIONAL_STABILITY");
+  }
   if (auditViolations.includes("OVER_APOLOGY")) psychologicalScore *= 0.8;
   if (auditViolations.includes("DESPERATE_SALES")) psychologicalScore *= 0.7;
 
