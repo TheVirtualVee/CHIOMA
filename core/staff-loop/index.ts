@@ -141,13 +141,7 @@ export async function runStaffLoop(
 
   } catch (err) {
     t("LOOP_FATAL_ERROR:" + String(err));
-    console.error("STAFF_LOOP_CRASH", err);
-    return {
-      responseText: "Sorry, I'm having a bit of trouble. Let me check that for you.",
-      responseType: "error_degraded",
-      delivered: false,
-      latencyMs: Date.now() - start,
-      correlationId: input.correlationId,
-    };
+    console.error("[FATAL_REAL]", err);
+    throw err;
   }
 }

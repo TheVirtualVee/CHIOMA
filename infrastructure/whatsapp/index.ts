@@ -24,7 +24,11 @@ export async function sendWhatsAppMessage(
     text: { body: text },
   };
 
-  console.log("[WHATSAPP] SENDING", payload);
+  console.log("[WHATSAPP] SENDING_MESSAGE_ATTEMPT", { 
+    to: sanitizedTo, 
+    tokenExists: !!accessToken,
+    tokenLength: accessToken?.length 
+  });
 
   const response = await fetch(url, {
     method: "POST",
