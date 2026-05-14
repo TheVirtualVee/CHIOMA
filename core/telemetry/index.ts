@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import crypto from "node:crypto";
+const randomUUID = crypto.randomUUID;
 import { ExecutionTimeline, TimelineEvent, ExecutionState, TraceContext } from "../contracts/telemetry.js";
 
 export class TelemetryManager {
