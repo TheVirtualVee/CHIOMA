@@ -58,9 +58,10 @@ export default async function handler(req: any, res: any) {
     const tenantId = `tenant_${value.metadata?.phone_number_id || "default"}`;
     const correlationId = `corr_${messageId}`;
 
-    const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
+    const sql = createDatabaseClient(config.DATABASE_URL, { max: 5 });
 
     try {
+      telemetry.record("LEDGER_CHECK_STARTED");
       // ── Idempotency gate ───────────────────────────────────────────────
       const [existing] = await sql`
         SELECT status, updated_at FROM message_ledger WHERE message_id = ${messageId}
@@ -69,11 +70,13 @@ export default async function handler(req: any, res: any) {
       if (existing) {
         if (existing.status === "COMPLETED") {
           telemetry.record("LEDGER_BLOCK", { reason: "COMPLETED" });
+          await sql.end();
           return res.status(200).json({ ok: true, duplicate: true });
         }
         const lastUpdate = new Date(existing.updated_at).getTime();
         if (existing.status === "PROCESSING" && Date.now() - lastUpdate < 30000) {
           telemetry.record("LEDGER_BLOCK", { reason: "IN_PROGRESS" });
+          await sql.end();
           return res.status(200).json({ ok: true, retry_ignored: true });
         }
         await sql`
@@ -102,33 +105,35 @@ export default async function handler(req: any, res: any) {
         traceContext: trace,
       };
 
-      telemetry.record("STAFF_LOOP_STARTED");
+      telemetry.record("ATOMIC_RUNNER_STARTING");
       const result = await runAtomicStaffLoop(staffLoopInput, sql, {
         apiKey: config.LLM_API_KEY,
         provider: config.LLM_PROVIDER,
       }, telemetry);
+      telemetry.record("ATOMIC_RUNNER_FINISHED", { resultType: result.responseType });
       
       // ── Deliver response via WhatsApp ──────────────────────────────────
       if (result.responseText) {
         const phoneNumberId = value.metadata?.phone_number_id as string | undefined;
         if (phoneNumberId) {
-          telemetry.record("SIDE_EFFECT_QUEUED", { 
-            effectType: "WHATSAPP_MESSAGE",
-            decisionId: result.decision?.decision_hash,
-            messageId: messageId
+          telemetry.record("WHATSAPP_DISPATCH_STARTING", { 
+            decisionId: result.decision?.decision_hash 
           });
           try {
             await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText, trace);
-            telemetry.record("SIDE_EFFECT_EXECUTED", { effectType: "WHATSAPP_MESSAGE", status: "SUCCESS" });
+            telemetry.record("WHATSAPP_DISPATCH_SUCCESS");
           } catch (waErr: unknown) {
             const msg = waErr instanceof Error ? waErr.message : String(waErr);
             console.error(`[WEBHOOK] WHATSAPP_DISPATCH_FAILED: ${msg}`);
-            telemetry.record("SIDE_EFFECT_EXECUTED", { effectType: "WHATSAPP_MESSAGE", status: "FAILED", error: msg });
+            telemetry.record("WHATSAPP_DISPATCH_FAILED", { error: msg });
           }
+        } else {
+          telemetry.record("WHATSAPP_DISPATCH_SKIPPED", { reason: "MISSING_PHONE_NUMBER_ID" });
         }
       }
 
       telemetry.complete("COMPLETED");
+      console.log(`[WEBHOOK] HANDLER_COMPLETING [${trace.traceId}]`);
       return res.status(200).json({ ok: true });
 
     } catch (innerErr: unknown) {
