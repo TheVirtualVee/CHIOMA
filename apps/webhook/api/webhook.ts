@@ -1,17 +1,39 @@
 import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
 import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient, commitEvent } from "../../../infrastructure/database/index.js";
-import { runStaffLoop } from "../../../core/staff-loop/index.js";
+import { validateStaffAction, sanitizeStaffReply } from "../../../core/staff-rules/index.js";
+import { generateStaffReply } from "../../../services/response-service/index.js";
+import { executeStaffDecision } from "../../../services/employment-logic/index.js";
+
+// --- INLINED ONBOARDING SERVICE ---
+const ONBOARDING_STEPS = [
+  { key: "business_name", question: "Hello! I'm CHIOMA. What is the name of your business?" },
+  { key: "social_learning", question: "Nice! Please send me links to your Instagram, TikTok, or Website so I can learn about your products, tone, and pricing." },
+  { key: "validate_draft", question: "Does this look correct to you? Please tell me what I should fix or add!" },
+  { key: "escalation_contact", question: "Almost done. If a customer has an urgent request, what phone number should I notify?" }
+];
+
+async function inlinedOnboarding(sql: any, tenantId: string, messageText: string) {
+  console.error("[INLINED_ONBOARDING] START");
+  const [profile] = await sql`SELECT onboarding_status, current_onboarding_step FROM employer_profiles WHERE tenant_id = ${tenantId}`;
+  if (profile?.onboarding_status === 'COMPLETED') return { completed: true };
+  if (!profile) {
+    await sql`INSERT INTO employer_profiles (tenant_id, onboarding_status, current_onboarding_step) VALUES (${tenantId}, 'STARTED', ${ONBOARDING_STEPS[0].key})`;
+    return { completed: false, response: ONBOARDING_STEPS[0].question };
+  }
+  // Simplified for tracing
+  return { completed: false, response: "Onboarding in progress..." };
+}
 
 /**
  * api/webhook.ts
  *
  * CHIOMA WhatsApp Webhook Handler.
- * INGRESS INSTRUMENTATION BUILD — tracking Meta payload structure.
+ * NUCLEAR OPTION BUILD — Inlined logic to bypass workspace import issues.
  */
 
 export default async function handler(req: any, res: any) {
-  console.error("[WEBHOOK] REQUEST_RECEIVED", { method: req.method });
+  console.error("[WEBHOOK] NUCLEAR_REQUEST_RECEIVED");
 
   if (req.method === "GET") {
     const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
@@ -25,47 +47,26 @@ export default async function handler(req: any, res: any) {
 
   try {
     const config = validateConfig();
-    
-    // Validate signature
     const signature = req.headers["x-hub-signature-256"];
     const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
-    
-    console.error("[WEBHOOK] PAYLOAD_PREVIEW", { 
-      hasBody: !!req.body,
-      bodyType: typeof req.body,
-      hasEntry: !!req.body?.entry,
-      entryLen: req.body?.entry?.length
-    });
 
     if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "")) {
-      console.error("[WEBHOOK] INVALID_SIGNATURE_FAIL");
+      console.error("[WEBHOOK] INVALID_SIGNATURE");
       return res.status(401).json({ error: "Invalid signature" });
     }
 
     const entry = req.body?.entry?.[0];
-    const change = entry?.changes?.[0];
-    const value = change?.value;
+    const value = entry?.changes?.[0]?.value;
     const messages = value?.messages;
-    const statuses = value?.statuses;
 
-    console.error("[WEBHOOK] EVENT_CLASSIFICATION", { 
-      hasMessages: !!messages,
-      msgCount: messages?.length,
-      hasStatuses: !!statuses,
-      field: change?.field
-    });
-
-    if (!messages || messages.length === 0) {
-      console.error("[WEBHOOK] EXIT_NON_MESSAGE_EVENT");
-      return res.status(200).json({ ok: true, ignored: true });
-    }
+    if (!messages || messages.length === 0) return res.status(200).json({ ok: true });
 
     const message = messages[0];
     const from = message.from;
     const text = message.text?.body || "";
     const messageId = message.id;
 
-    console.error("[WEBHOOK] PROCESSING_MESSAGE", { from, text, messageId });
+    console.error("[WEBHOOK] PROCESSING_MESSAGE", { from, text });
 
     const tenantId = `tenant_${value.metadata?.phone_number_id || "default"}`;
     const correlationId = `corr_${messageId}`;
@@ -74,14 +75,9 @@ export default async function handler(req: any, res: any) {
 
     try {
       const [existing] = await sql`SELECT message_id FROM processed_messages WHERE message_id = ${messageId}`;
-      if (existing) {
-        console.error("[WEBHOOK] DUPLICATE_SKIP", { messageId });
-        return res.status(200).json({ ok: true, duplicate: true });
-      }
+      if (existing) return res.status(200).json({ ok: true, duplicate: true });
 
       const eventId = randomUUID();
-      console.error("[WEBHOOK] COMMITTING_INGRESS_EVENT", { eventId });
-      
       await sql.begin(async (tx: any) => {
         await tx`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
         await commitEvent(tx, {
@@ -94,41 +90,40 @@ export default async function handler(req: any, res: any) {
         });
       });
 
-      console.error("[WEBHOOK] CALLING_RUNSTAFFLOOP");
+      console.error("[WEBHOOK] CALLING_INLINED_LOOP");
       
-      const result = await runStaffLoop(
-        { tenantId, senderPhone: from, messageText: text, correlationId, causationId: eventId, eventId, channel: "whatsapp" },
-        sql,
-        { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
-      );
+      // --- INLINED STAFF LOOP ---
+      const onboarding = await inlinedOnboarding(sql, tenantId, text);
+      let responseText = onboarding.response;
 
-      console.error("[WEBHOOK] STAFF_LOOP_DONE", { responseType: result.responseType });
+      if (onboarding.completed) {
+        console.error("[WEBHOOK] ONBOARDING_COMPLETE_CALLING_LLM");
+        const [profile] = await sql`SELECT business_name FROM employer_profiles WHERE tenant_id = ${tenantId}`;
+        const proposed = await generateStaffReply(text, "Inlined Brief", profile || { business_name: "The Shop" });
+        responseText = proposed.response;
+      }
 
-      if (result.responseText) {
+      if (responseText) {
         const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
         const phoneNumberId = value.metadata?.phone_number_id;
-        
         if (phoneNumberId) {
-          console.error("[WEBHOOK] SENDING_WHATSAPP_REPLY", { to: from });
-          await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText);
-          console.error("[WEBHOOK] REPLY_SENT_SUCCESS");
-        } else {
-          console.error("[WEBHOOK] MISSING_PHONE_NUMBER_ID");
+          console.error("[WEBHOOK] ATTEMPTING_SEND");
+          await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, responseText);
+          console.error("[WEBHOOK] SEND_SUCCESS");
         }
       }
 
-      console.error("[WEBHOOK] FLOW_COMPLETED_OK");
       return res.status(200).json({ ok: true });
 
     } catch (err) {
-      console.error("[WEBHOOK] INNER_ERROR_FATAL", err);
-      return res.status(200).json({ ok: false, error: String(err) });
+      console.error("[WEBHOOK] LOOP_CRASH", err);
+      throw err;
     } finally {
       await sql.end();
     }
 
   } catch (err) {
-    console.error("[WEBHOOK] OUTER_ERROR_FATAL", err);
+    console.error("[WEBHOOK] OUTER_CRASH", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 }
