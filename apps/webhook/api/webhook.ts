@@ -20,13 +20,18 @@ export default async function handler(req: any, res: any) {
 
   try {
     const config = validateConfig();
+    l("CONFIG_VALIDATED");
     const signature = req.headers["x-hub-signature-256"] as string;
     const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
     
+    const hasSignature = !!signature;
+    const hasSecret = !!config.WHATSAPP_APP_SECRET;
+    l(`SIGNATURE_CHECK: has_sig=${hasSignature} has_secret=${hasSecret}`);
     if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "")) {
-      l("INVALID_SIGNATURE");
+      l("INVALID_SIGNATURE: rejecting");
       return res.status(401).json({ error: "Invalid signature" });
     }
+    l("SIGNATURE_VALID");
 
     const entry = req.body?.entry?.[0];
     const value = entry?.changes?.[0]?.value;
@@ -107,16 +112,22 @@ export default async function handler(req: any, res: any) {
       l("LIFECYCLE_COMPLETE");
       return res.status(200).json({ ok: true });
 
-    } catch (innerErr) {
-      console.error(`[WEBHOOK] INNER_SHELL_FAILURE: ${innerErr}`);
-      return res.status(200).json({ ok: false, error: "Internal processing failure" });
+    } catch (innerErr: unknown) {
+      const msg = innerErr instanceof Error ? innerErr.message : String(innerErr);
+      const stack = innerErr instanceof Error ? innerErr.stack : undefined;
+      console.error(`[WEBHOOK] INNER_SHELL_FAILURE: ${msg}`);
+      if (stack) console.error(`[WEBHOOK] STACK: ${stack}`);
+      return res.status(200).json({ ok: false, stage: "processing", error: msg });
     } finally {
       await sql.end();
     }
 
-  } catch (outerErr) {
-    console.error(`[WEBHOOK] OUTER_SHELL_FAILURE: ${outerErr}`);
-    return res.status(200).json({ ok: false, error: "Ingress failure" });
+  } catch (outerErr: unknown) {
+    const msg = outerErr instanceof Error ? outerErr.message : String(outerErr);
+    console.error(`[WEBHOOK] OUTER_SHELL_FAILURE: ${msg}`);
+    // ASSERT: always return 200 to WhatsApp (prevents retry storms)
+    // but log the full error for operator visibility
+    return res.status(200).json({ ok: false, stage: "ingress", error: msg });
   }
 }
 

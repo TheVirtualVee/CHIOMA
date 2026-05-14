@@ -47,24 +47,56 @@ Return ONLY JSON:
   "confidence": number
 }`;
 
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.LLM_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: staffInstructions },
-        { role: "user", content: message },
-      ],
-      temperature: 0.1,
-      response_format: { type: "json_object" },
-    }),
-  });
+  // Resolve provider from env — LLM_PROVIDER controls which endpoint is used.
+  // ASSERT: default to Groq (fast + cheap) but respect operator configuration.
+  const provider = process.env.LLM_PROVIDER ?? "groq";
+  const apiKey = process.env.LLM_API_KEY;
+  if (!apiKey) throw new Error("LLM_API_KEY not set");
 
-  if (!response.ok) throw new Error(`STAFF_REPLY_ERROR: ${response.status}`);
+  const PROVIDER_CONFIG: Record<string, { url: string; defaultModel: string }> = {
+    groq:       { url: "https://api.groq.com/openai/v1/chat/completions",        defaultModel: "llama-3.3-70b-versatile" },
+    openai:     { url: "https://api.openai.com/v1/chat/completions",             defaultModel: "gpt-4o-mini" },
+    openrouter: { url: "https://openrouter.ai/api/v1/chat/completions",          defaultModel: "mistralai/mistral-7b-instruct" },
+  };
+
+  const cfg = PROVIDER_CONFIG[provider] ?? PROVIDER_CONFIG["groq"];
+  const model = process.env.LLM_MODEL ?? cfg.defaultModel;
+
+  // ASSERT: timeout enforced — LLM must not stall the serverless function
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+
+  let response: Response;
+  try {
+    response = await fetch(cfg.url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: staffInstructions },
+          { role: "user", content: message },
+        ],
+        temperature: 0.1,
+        response_format: { type: "json_object" },
+      }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    throw new Error(isTimeout ? `LLM_TIMEOUT: ${provider} did not respond within 12s` : `LLM_FETCH_ERROR: ${String(err)}`);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => "");
+    throw new Error(`STAFF_REPLY_ERROR [${provider}] HTTP_${response.status}: ${errBody}`);
+  }
 
   const data = await response.json() as any;
   const rawContent = data.choices[0].message.content;

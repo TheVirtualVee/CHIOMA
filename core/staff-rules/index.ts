@@ -64,24 +64,63 @@ export function validateStaffAction(
   return validatedAction;
 }
 
+/**
+ * Parse a time string into total minutes since midnight.
+ * Handles: "09:00", "9:00", "9am", "9pm", "9:30am", "9:30pm"
+ * Returns null if unparseable.
+ */
+function parseTimeToMinutes(raw: string): number | null {
+  const s = raw.trim().toLowerCase();
+
+  // Format: HH:MM or H:MM (24h)
+  const hhmm = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (hhmm) {
+    return parseInt(hhmm[1], 10) * 60 + parseInt(hhmm[2], 10);
+  }
+
+  // Format: H:MMam/pm or HH:MMam/pm
+  const hmamp = s.match(/^(\d{1,2}):(\d{2})(am|pm)$/);
+  if (hmamp) {
+    let h = parseInt(hmamp[1], 10);
+    const m = parseInt(hmamp[2], 10);
+    if (hmamp[3] === "pm" && h !== 12) h += 12;
+    if (hmamp[3] === "am" && h === 12) h = 0;
+    return h * 60 + m;
+  }
+
+  // Format: Ham / Hpm (e.g. "9am", "6pm")
+  const hamp = s.match(/^(\d{1,2})(am|pm)$/);
+  if (hamp) {
+    let h = parseInt(hamp[1], 10);
+    if (hamp[2] === "pm" && h !== 12) h += 12;
+    if (hamp[2] === "am" && h === 12) h = 0;
+    return h * 60;
+  }
+
+  return null;
+}
+
 export function isWithinWorkingHours(now: Date, workingHours: string): boolean {
   try {
     if (!workingHours || workingHours === "Not specified") return true;
-    const [start, end] = workingHours.split("-");
-    const [startH, startM] = start.split(":").map(Number);
-    const [endH, endM] = end.split(":").map(Number);
 
-    const currentH = now.getHours();
-    const currentM = now.getMinutes();
+    // Support dash or em-dash separators, with optional spaces
+    const parts = workingHours.split(/[-–—]/).map(s => s.trim());
+    if (parts.length < 2) return true; // Unparseable format → assume open
 
-    const currentTotalMinutes = currentH * 60 + currentM;
-    const startTotalMinutes = startH * 60 + startM;
-    const endTotalMinutes = endH * 60 + endM;
+    const startMinutes = parseTimeToMinutes(parts[0]);
+    const endMinutes = parseTimeToMinutes(parts[1]);
 
-    return currentTotalMinutes >= startTotalMinutes && currentTotalMinutes <= endTotalMinutes;
+    if (startMinutes === null || endMinutes === null) {
+      console.error("WORKING_HOURS_PARSE_ERROR", { workingHours, parts });
+      return true; // Default to open on parse failure
+    }
+
+    const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+    return currentTotalMinutes >= startMinutes && currentTotalMinutes <= endMinutes;
   } catch (err) {
     console.error("WORKING_HOURS_PARSE_ERROR", err);
-    return true; 
+    return true;
   }
 }
 
