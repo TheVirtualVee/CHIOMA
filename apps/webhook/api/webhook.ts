@@ -10,6 +10,7 @@ import { TelemetryManager, createTraceContext } from "../../../core/telemetry/in
  */
 
 export default async function handler(req: any, res: any) {
+  console.log(`[BOOT] Webhook Handler Active [v1.2-diagnostic] [${req.method}]`);
   const workerId = `worker_${process.env.VERCEL_REGION || "local"}`;
   const trace = createTraceContext(workerId);
   
