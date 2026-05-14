@@ -1,4 +1,4 @@
-import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient } from "../../../infrastructure/database/index.js";
 import { runAtomicStaffLoop } from "../../../core/staff-loop/atomic-runner.js";
@@ -110,7 +110,7 @@ export default async function handler(req: any, res: any) {
         }
 
         // ── Run Atomic Staff Loop ────────────────────────────────────────
-        const eventId = randomUUID();
+        const eventId = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
         const staffLoopInput = {
           messageId,
           tenantId,

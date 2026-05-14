@@ -1,5 +1,19 @@
 import crypto from "node:crypto";
-const randomUUID = crypto.randomUUID;
+
+/**
+ * Robust UUID fallback for environments where crypto.randomUUID might be missing or broken.
+ */
+function safeRandomUUID(): string {
+  try {
+    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    if (typeof crypto.randomBytes === 'function') return crypto.randomBytes(16).toString("hex");
+  } catch (e) {
+    // Ultimate fallback
+  }
+  return `fallback-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+const randomUUID = safeRandomUUID;
 import { ExecutionTimeline, TimelineEvent, ExecutionState, TraceContext } from "../contracts/telemetry.js";
 
 export class TelemetryManager {
