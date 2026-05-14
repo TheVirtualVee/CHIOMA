@@ -26,13 +26,18 @@ export class TelemetryManager {
     };
     this.timeline.stages.push(event);
     
-    // Structured log for external observability (Vercel/Datadog/etc)
+    // Immediate log for real-time tailing
     console.log(`[TELEMETRY] [${this.timeline.traceId}] [${event.elapsedMs}ms] ${stage}${metadata ? ' ' + JSON.stringify(metadata) : ''}`);
   }
 
   complete(state: ExecutionState) {
     this.timeline.finalState = state;
     this.record("FINALIZATION_COMPLETED", { finalState: state });
+    
+    // 🧠 CRITICAL for Serverless: Log the entire causal chain in one final line.
+    // This ensures that even if individual logs are missed, the full narrative is preserved.
+    const narrative = this.timeline.stages.map(s => `(${s.elapsedMs}ms: ${s.stage})`).join(" -> ");
+    console.log(`[EXECUTION_SUMMARY] [${this.timeline.traceId}] [${state}] Narrative: ${narrative}`);
   }
 
   getTimeline(): ExecutionTimeline {
