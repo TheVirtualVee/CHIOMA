@@ -28,16 +28,53 @@ export default async function handler(req: any, res: any) {
   try {
     config = validateConfig();
   } catch (err) {
+    console.error("[WEBHOOK] CONFIG_FAILURE", String(err));
     return res.status(500).send("Configuration incomplete");
   }
 
   if (req.method === "POST") {
-    console.log("[WEBHOOK] REQUEST_RECEIVED");
-    console.log("[WEBHOOK] RAW_BODY", JSON.stringify(req.body, null, 2));
-    console.log("[CONFIG] TOKEN_PRESENT", !!process.env.WHATSAPP_ACCESS_TOKEN);
-
+    // TOP-LEVEL fatal catch — nothing escapes silently
     try {
-      const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+      console.log("[WEBHOOK] REQUEST_RECEIVED");
+      console.log("[WEBHOOK] BODY_TYPE", typeof req.body);
+      console.log("[WEBHOOK] BODY_KEYS", req.body ? Object.keys(req.body) : []);
+      console.log("[CONFIG] TOKEN_PRESENT", !!process.env.WHATSAPP_ACCESS_TOKEN);
+
+      // ── SAFE INTROSPECTION ─────────────────────────────────────────────
+      try {
+        const entry = req.body?.entry?.[0];
+        const change = entry?.changes?.[0];
+        const value = change?.value;
+
+        console.log("[WEBHOOK] STRUCTURE_CHECK", {
+          hasEntry: !!entry,
+          hasChange: !!change,
+          hasValue: !!value,
+          hasMessages: !!value?.messages,
+          hasStatuses: !!value?.statuses,
+          field: change?.field
+        });
+
+        if (value?.messages) {
+          console.log("[WEBHOOK] MESSAGE_COUNT", value.messages.length);
+          const first = value.messages[0];
+          console.log("[WEBHOOK] FIRST_MESSAGE", {
+            from: first?.from,
+            type: first?.type,
+            id: first?.id
+          });
+        } else {
+          console.log("[WEBHOOK] NO_MESSAGES_PRESENT");
+        }
+      } catch (introspectError) {
+        console.error("[WEBHOOK_INTROSPECTION_FATAL]", introspectError);
+      }
+      // ── END SAFE INTROSPECTION ─────────────────────────────────────────
+
+      // Signature validation — rawBody must be derived safely
+      const rawBody = typeof req.body === "string"
+        ? req.body
+        : JSON.stringify(req.body);
       const signature = req.headers["x-hub-signature-256"];
 
       if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "")) {
@@ -50,28 +87,12 @@ export default async function handler(req: any, res: any) {
       const entry = body?.entry?.[0];
       const change = entry?.changes?.[0];
       const value = change?.value;
-
-      console.log("[WEBHOOK] STRUCTURE_CHECK", {
-        hasEntry: !!entry,
-        hasChange: !!change,
-        hasValue: !!value,
-        hasMessages: !!value?.messages,
-        hasStatuses: !!value?.statuses,
-        field: change?.field
-      });
-
       const messages = value?.messages;
 
       if (!messages || messages.length === 0) {
-        console.log("[WEBHOOK] NON_MESSAGE_EVENT", JSON.stringify(value, null, 2));
-        return res.status(200).json({
-          ok: true,
-          ignored: true,
-          reason: messages ? "EMPTY_MESSAGES" : "NO_MESSAGES"
-        });
+        console.log("[WEBHOOK] NON_MESSAGE_EVENT — field:", change?.field);
+        return res.status(200).json({ ok: true, ignored: true });
       }
-
-      console.log("[WEBHOOK] MESSAGE_PAYLOAD", JSON.stringify(messages, null, 2));
 
       const message = messages[0];
       const from = message.from;
@@ -80,9 +101,8 @@ export default async function handler(req: any, res: any) {
 
       console.log("[WEBHOOK] MESSAGE_EXTRACTED", { from, text, messageId });
 
-      const tenantId = `tenant_${value.metadata?.phone_number_id || 'default'}`;
+      const tenantId = `tenant_${value.metadata?.phone_number_id || "default"}`;
       const correlationId = `corr_${messageId}`;
-
       const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
       try {
@@ -106,15 +126,7 @@ export default async function handler(req: any, res: any) {
         });
 
         const result = await runStaffLoop(
-          { 
-            tenantId, 
-            senderPhone: from, 
-            messageText: text, 
-            correlationId, 
-            causationId: eventId, 
-            eventId, 
-            channel: "whatsapp" 
-          },
+          { tenantId, senderPhone: from, messageText: text, correlationId, causationId: eventId, eventId, channel: "whatsapp" },
           sql,
           { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
         );
@@ -122,34 +134,26 @@ export default async function handler(req: any, res: any) {
         if (result.responseText) {
           const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
           const phoneNumberId = value.metadata?.phone_number_id;
-          
           if (phoneNumberId) {
-            await sendWhatsAppMessage(
-              phoneNumberId,
-              config.WHATSAPP_ACCESS_TOKEN,
-              from,
-              result.responseText
-            );
+            await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText);
           } else {
             console.error("[WEBHOOK] MISSING_PHONE_NUMBER_ID");
           }
         }
 
-        console.log("STAFF_LOOP_COMPLETE", { messageId, tenantId, latency: Date.now() - start });
+        console.log("[WEBHOOK] STAFF_LOOP_COMPLETE", { messageId, tenantId, latency: Date.now() - start });
         return res.status(200).send("OK");
 
-      } catch (err) {
-        console.error("[WEBHOOK_PROCESSING_FAILURE]", { messageId, error: String(err) });
+      } catch (processingErr) {
+        console.error("[WEBHOOK_PROCESSING_FAILURE]", String(processingErr));
         return res.status(200).send("OK");
       } finally {
         await sql.end();
       }
+
     } catch (fatalError) {
       console.error("[WEBHOOK_FATAL]", fatalError);
-      return res.status(500).json({
-        ok: false,
-        error: String(fatalError)
-      });
+      return res.status(500).json({ ok: false, error: String(fatalError) });
     }
   }
 
@@ -162,4 +166,3 @@ function validateSignature(rawBody: string, signature: string | null, secret: st
   const received = signature.slice(7);
   return expected.length === received.length && timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(received, "hex"));
 }
-
