@@ -198,7 +198,8 @@ export async function runAtomicStaffLoop(
       
       validateInvariants({ stage: "FINALIZED", idempotencyKey: input.messageId });
 
-      return loopResult;
+      telemetry.record("FINALIZATION_DONE", { resultType: result.responseType });
+      return result;
     });
 
     await releaseLease(sql, aggregateId, workerId, lease.fencingToken);
@@ -207,23 +208,31 @@ export async function runAtomicStaffLoop(
   } catch (err: any) {
     if (lease) await releaseLease(sql, aggregateId, workerId, lease.fencingToken);
     const failure = classify(err);
-    telemetry.record("EXECUTION_FAILED", { class: failure.class, message: err.message });
+    telemetry.record("EXECUTION_HALTED", { class: failure.class, message: err.message });
 
-    await sql.begin(async (tx: any) => {
-      await tx`
-        INSERT INTO failure_logs (message_id, tenant_id, input_text, failure_type, metadata)
-        VALUES (${input.messageId}, ${input.tenantId}, ${input.messageText}, ${failure.class}, ${tx.json({ error: err.message, failureId: failure.failureId })})
-      `;
-      
-      await compensate(tx, failure, { messageId: input.messageId, tenantId: input.tenantId });
-    });
+    try {
+      await sql.begin(async (tx: any) => {
+        await tx`
+          INSERT INTO failure_logs (message_id, tenant_id, input_text, failure_type, metadata)
+          VALUES (${input.messageId}, ${input.tenantId}, ${input.messageText}, ${failure.class}, ${tx.json({ error: err.message, failureId: failure.failureId })})
+        `;
+        
+        await tx`UPDATE message_ledger SET status = 'FAILED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
+        await compensate(tx, failure, { messageId: input.messageId, tenantId: input.tenantId });
+      });
+    } catch (dbErr) {
+      console.error(`[ATOMIC_RUNNER] FATAL_DB_FAILURE_IN_CATCH: ${dbErr}`);
+    }
 
-    return {
-      responseText: "I'm having a bit of trouble. Let me check that for you.",
+    const fallbackResponse: StaffLoopResult = {
+      responseText: "I'm having a bit of trouble processing that. Let me get someone to help you.",
       responseType: "error_degraded",
       delivered: false,
       latencyMs: Date.now() - start,
       correlationId: correlationId,
     };
+
+    telemetry.record("FINALIZATION_DONE", { resultType: "error_degraded", error: err.message });
+    return fallbackResponse;
   }
 }
