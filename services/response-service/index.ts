@@ -73,7 +73,7 @@ Return ONLY JSON:
 
   if (!response.ok) throw new Error(`STAFF_REPLY_ERROR: ${response.status}`);
 
-  const data = await response.json();
+  const data = await response.json() as any;
   const rawContent = data.choices[0].message.content;
   
   return ProposedStaffDecisionSchema.parse(JSON.parse(rawContent)) as ProposedStaffDecision;

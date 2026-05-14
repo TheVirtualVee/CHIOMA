@@ -65,7 +65,7 @@ Return ONLY JSON:
 
   if (!response.ok) throw new Error(`BUSINESS_LEARNING_ERROR: ${response.status}`);
 
-  const data = await response.json();
+  const data = await response.json() as any;
   const rawContent = data.choices[0].message.content;
   
   return BusinessDraftSchema.parse(JSON.parse(rawContent)) as BusinessDraft;
