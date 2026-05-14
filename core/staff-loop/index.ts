@@ -25,6 +25,11 @@ export async function runStaffLoop(
   config: { apiKey: string; provider: string }
 ): Promise<StaffLoopResult> {
   const start = Date.now();
+  console.log("[STAFF_LOOP] START", {
+    tenantId: input.tenantId,
+    senderPhone: input.senderPhone,
+    message: input.messageText
+  });
 
   try {
     // 1. DETERMINISTIC ONBOARDING CHECK
@@ -53,9 +58,11 @@ export async function runStaffLoop(
       `Business Knowledge: Last goal was ${state?.current_goal || 'none'}`,
       ...facts.map(f => `${f.key}: ${JSON.stringify(f.value)}`)
     ].join("\n");
+    console.log("[STAFF_LOOP] BUSINESS_CONTEXT_READY");
 
     // 4. CONVERSATIONAL RENDERING (Probabilistic Proposal)
     const proposedDecision = await generateStaffReply(input.messageText, businessBrief, profile || { business_name: "The Shop" });
+    console.log("[STAFF_LOOP] STAFF_DECISION", proposedDecision);
 
     // 5. DETERMINISTIC RULE ENGINE (Operational Authority)
     const validatedAction = validateStaffAction(
@@ -72,6 +79,7 @@ export async function runStaffLoop(
         llmConfidence: proposedDecision.confidence 
       }
     );
+    console.log("[STAFF_LOOP] VALIDATED_ACTION", validatedAction);
 
     // 6. DETERMINISTIC POST-PROCESSING (Sanitization & Price Lock)
     const { sanitizedReply, actionOverride } = sanitizeStaffReply(proposedDecision.response, facts);

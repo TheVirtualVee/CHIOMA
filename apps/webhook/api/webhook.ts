@@ -32,78 +32,105 @@ export default async function handler(req: any, res: any) {
   }
 
   if (req.method === "POST") {
-    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-    const signature = req.headers["x-hub-signature-256"];
-
-    if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "")) {
-      return res.status(401).send("Unauthorized");
-    }
-
-    const body = req.body;
-    const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-
-    if (!message) return res.status(200).send("OK");
-
-    const messageId = message.id;
-    const tenantId = `tenant_${body.entry[0].changes[0].value.metadata?.phone_number_id || 'default'}`;
-    const correlationId = `corr_${messageId}`;
-
-    const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
+    console.log("[WEBHOOK] REQUEST_RECEIVED");
+    console.log("[WEBHOOK] METHOD", req.method);
+    console.log("[WEBHOOK] BODY", JSON.stringify(req.body));
+    console.log("[CONFIG] TOKEN_PRESENT", !!process.env.WHATSAPP_ACCESS_TOKEN);
 
     try {
-      const [existing] = await sql`SELECT message_id FROM processed_messages WHERE message_id = ${messageId}`;
-      if (existing) return res.status(200).send("OK");
+      const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+      const signature = req.headers["x-hub-signature-256"];
 
-      const eventId = randomUUID();
-      await sql.begin(async (tx: any) => {
-        await tx`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
-        await commitEvent(tx, {
-          id: eventId,
-          type: "MESSAGE_RECEIVED",
-          payload: { channel: "whatsapp", from: message.from, text: message.text?.body || "", waMessageId: messageId },
-          tenantId,
-          correlationId,
-          causationId: correlationId // For the first event, correlation is causation
-        });
-      });
+      if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "")) {
+        console.error("[WEBHOOK] SIGNATURE_INVALID");
+        return res.status(401).send("Unauthorized");
+      }
+      console.log("[WEBHOOK] SIGNATURE_VALID");
 
-      const result = await runStaffLoop(
-        { 
-          tenantId, 
-          senderPhone: message.from, 
-          messageText: message.text?.body || "", 
-          correlationId, 
-          causationId: eventId, 
-          eventId, 
-          channel: "whatsapp" 
-        },
-        sql,
-        { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
-      );
+      const body = req.body;
+      const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
 
-
-      if (result.responseText) {
-        const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
-        const phoneNumberId = body.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
-        
-        if (phoneNumberId) {
-          await sendWhatsAppMessage(
-            phoneNumberId,
-            config.WHATSAPP_ACCESS_TOKEN,
-            message.from,
-            result.responseText
-          );
-        }
+      if (!message) {
+        console.log("[WEBHOOK] NO_MESSAGES_IN_PAYLOAD", JSON.stringify(body));
+        return res.status(200).send("OK");
       }
 
-      console.log("STAFF_LOOP_COMPLETE", { messageId, tenantId, latency: Date.now() - start });
-      return res.status(200).send("OK");
+      const from = message.from;
+      const text = message.text?.body || "";
+      const messageId = message.id;
 
-    } catch (err) {
-      console.error("WEBHOOK_PROCESSING_FAILURE", { messageId, error: String(err) });
-      return res.status(200).send("OK");
-    } finally {
-      await sql.end();
+      console.log("[WEBHOOK] MESSAGE_EXTRACTED", { from, text, messageId });
+
+      const tenantId = `tenant_${body.entry[0].changes[0].value.metadata?.phone_number_id || 'default'}`;
+      const correlationId = `corr_${messageId}`;
+
+      const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
+
+      try {
+        const [existing] = await sql`SELECT message_id FROM processed_messages WHERE message_id = ${messageId}`;
+        if (existing) {
+          console.log("[WEBHOOK] DUPLICATE_MESSAGE_IGNORED", messageId);
+          return res.status(200).send("OK");
+        }
+
+        const eventId = randomUUID();
+        await sql.begin(async (tx: any) => {
+          await tx`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
+          await commitEvent(tx, {
+            id: eventId,
+            type: "MESSAGE_RECEIVED",
+            payload: { channel: "whatsapp", from, text, waMessageId: messageId },
+            tenantId,
+            correlationId,
+            causationId: correlationId
+          });
+        });
+
+        const result = await runStaffLoop(
+          { 
+            tenantId, 
+            senderPhone: from, 
+            messageText: text, 
+            correlationId, 
+            causationId: eventId, 
+            eventId, 
+            channel: "whatsapp" 
+          },
+          sql,
+          { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
+        );
+
+        if (result.responseText) {
+          const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
+          const phoneNumberId = body.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
+          
+          if (phoneNumberId) {
+            await sendWhatsAppMessage(
+              phoneNumberId,
+              config.WHATSAPP_ACCESS_TOKEN,
+              from,
+              result.responseText
+            );
+          } else {
+            console.error("[WEBHOOK] MISSING_PHONE_NUMBER_ID");
+          }
+        }
+
+        console.log("STAFF_LOOP_COMPLETE", { messageId, tenantId, latency: Date.now() - start });
+        return res.status(200).send("OK");
+
+      } catch (err) {
+        console.error("[WEBHOOK_PROCESSING_FAILURE]", { messageId, error: String(err) });
+        return res.status(200).send("OK");
+      } finally {
+        await sql.end();
+      }
+    } catch (fatalError) {
+      console.error("[WEBHOOK_FATAL]", fatalError);
+      return res.status(500).json({
+        ok: false,
+        error: String(fatalError)
+      });
     }
   }
 

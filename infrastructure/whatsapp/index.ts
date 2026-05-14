@@ -13,29 +13,34 @@ export async function sendWhatsAppMessage(
 ): Promise<void> {
   const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`;
 
+  // Phase 6: Ensure recipient format uses 234... NOT +234...
+  const sanitizedTo = to.replace("+", "").trim();
+
+  const payload = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: sanitizedTo,
+    type: "text",
+    text: { body: text },
+  };
+
+  console.log("[WHATSAPP] SENDING", payload);
+
   const response = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to: to,
-      type: "text",
-      text: { body: text },
-    }),
+    body: JSON.stringify(payload),
   });
 
+  console.log("[WHATSAPP] STATUS", response.status);
+  const raw = await response.text();
+  console.log("[WHATSAPP] RESPONSE", raw);
+
   if (!response.ok) {
-    const errorData = await response.json();
-    console.error("WHATSAPP_SEND_ERROR", {
-      status: response.status,
-      error: errorData,
-      to,
-      phoneNumberId
-    });
+    console.error("[WHATSAPP] DELIVERY_FAILED");
     throw new Error(`WHATSAPP_API_FAILURE: ${response.status}`);
   }
 }
