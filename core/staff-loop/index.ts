@@ -17,8 +17,9 @@ console.error("[STAFF_LOOP] MODULE_LOADED");
 /**
  * core/staff-loop/index.ts
  *
- * THE STAFF LOOP (Authority Model v1.1)
- * HARD TRACING BUILD — using console.error to bypass Vercel buffering.
+ * THE STAFF LOOP (Authority Model v1.2)
+ * HARDENED SHELL — Zero-Throw Policy.
+ * Every error returns a safe staff-style fallback instead of a crash.
  */
 
 export async function runStaffLoop(
@@ -26,12 +27,8 @@ export async function runStaffLoop(
   sql: postgres.Sql,
   config: { apiKey: string; provider: string }
 ): Promise<StaffLoopResult> {
-  console.error("[STAFF_LOOP] FUNCTION_ENTER", { tenantId: input.tenantId });
-  
   const start = Date.now();
-  const t = (m: string) => { 
-    console.error(`[STAFF_LOOP_TRACE] [${Date.now() - start}ms] ${m}`);
-  };
+  const t = (m: string) => console.error(`[STAFF_LOOP_TRACE] [${Date.now() - start}ms] ${m}`);
 
   t("START_LOOP");
 
@@ -39,8 +36,7 @@ export async function runStaffLoop(
     // 1. DETERMINISTIC ONBOARDING CHECK
     t("CHECKING_ONBOARDING");
     const onboarding = await processOnboardingStep(sql, input.tenantId, input.messageText);
-    t("ONBOARDING_STATUS:" + onboarding.completed);
-
+    
     if (!onboarding.completed) {
       t("ONBOARDING_INCOMPLETE_EXIT");
       return {
@@ -53,23 +49,16 @@ export async function runStaffLoop(
     }
 
     // 2. DETERMINISTIC STATE FETCH
-    t("FETCHING_PROFILE");
+    t("FETCHING_CONTEXT");
     const [profile] = await sql<EmployabilityProfile[]>`
       SELECT business_name, tone_profile, response_style, escalation_contact, working_hours 
       FROM employer_profiles WHERE tenant_id = ${input.tenantId}
     `;
-    t("PROFILE_FETCHED:" + !!profile);
 
-    t("FETCHING_CUSTOMER_STATE");
     const [state] = await sql`SELECT last_customer_need, current_goal FROM customer_memory WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}`;
-    t("STATE_FETCHED:" + !!state);
-
-    t("FETCHING_FACTS");
     const facts = await sql`SELECT key, value FROM business_facts WHERE tenant_id = ${input.tenantId} LIMIT 20`;
-    t("FACTS_FETCHED:" + facts.length);
     
     // 3. BUSINESS BRIEF ASSEMBLY
-    t("ASSEMBLING_BRIEF");
     const businessBrief = [
       `Business Knowledge: Last goal was ${state?.current_goal || 'none'}`,
       ...facts.map(f => `${f.key}: ${JSON.stringify(f.value)}`)
@@ -77,52 +66,50 @@ export async function runStaffLoop(
 
     // 4. CONVERSATIONAL RENDERING (Probabilistic Proposal)
     t("CALLING_LLM");
-    const proposedDecision = await generateStaffReply(input.messageText, businessBrief, profile || { business_name: "The Shop" });
-    t("LLM_REPLIED:" + proposedDecision.confidence);
+    let finalDecision: StaffDecision;
+    try {
+      const proposedDecision = await generateStaffReply(input.messageText, businessBrief, profile || { business_name: "The Shop" });
+      
+      // 5. DETERMINISTIC RULE ENGINE (Operational Authority)
+      const validatedAction = validateStaffAction(
+        { 
+          type: proposedDecision.suggested_action.type,
+          urgency: proposedDecision.suggested_action.urgency,
+          revenue_weight: proposedDecision.suggested_action.revenue_weight,
+          need_classification: proposedDecision.suggested_action.need_classification
+        },
+        { currentTime: new Date(), profile, customerState: state, llmConfidence: proposedDecision.confidence }
+      );
 
-    // 5. DETERMINISTIC RULE ENGINE (Operational Authority)
-    t("VALIDATING_ACTION");
-    const validatedAction = validateStaffAction(
-      { 
-        type: proposedDecision.suggested_action.type,
-        urgency: proposedDecision.suggested_action.urgency,
-        revenue_weight: proposedDecision.suggested_action.revenue_weight,
-        need_classification: proposedDecision.suggested_action.need_classification
-      },
-      { 
-        currentTime: new Date(), 
-        profile, 
-        customerState: state,
-        llmConfidence: proposedDecision.confidence 
-      }
-    );
+      // 6. DETERMINISTIC POST-PROCESSING (Sanitization & Price Lock)
+      const { sanitizedReply, actionOverride } = sanitizeStaffReply(proposedDecision.response, facts);
 
-    // 6. DETERMINISTIC POST-PROCESSING (Sanitization & Price Lock)
-    t("SANITIZING_REPLY");
-    const { sanitizedReply, actionOverride } = sanitizeStaffReply(proposedDecision.response, facts);
-
-    const finalDecision: StaffDecision = {
-      response: sanitizedReply,
-      customer_need: proposedDecision.customer_need,
-      action: actionOverride ? { ...validatedAction, type: actionOverride, urgency: "HIGH" } : validatedAction,
-      confidence: proposedDecision.confidence
-    };
+      finalDecision = {
+        response: sanitizedReply,
+        customer_need: proposedDecision.customer_need,
+        action: actionOverride ? { ...validatedAction, type: actionOverride, urgency: "HIGH" } : validatedAction,
+        confidence: proposedDecision.confidence
+      };
+    } catch (llmErr) {
+      t("LLM_FAILURE_FALLBACK:" + String(llmErr));
+      finalDecision = {
+        response: "I'm checking that for you right now. One moment please.",
+        customer_need: "UNKNOWN (System Failure)",
+        action: { type: "REPLY", urgency: "LOW", revenue_weight: 0, need_classification: "NO_REVENUE" },
+        confidence: 0
+      };
+    }
 
     // 7. EXECUTION
     t("EXECUTING_DECISION");
     const outcome = await executeStaffDecision(sql, input.tenantId, input.senderPhone, finalDecision, input.correlationId);
-    t("EXECUTION_DONE");
 
     // 8. PERSISTENCE
     t("COMMITTING_EVENT");
     await commitEvent(sql, {
       id: randomUUID(),
       type: "STAFF_ACTION_TAKEN",
-      payload: { 
-        text: finalDecision.response, 
-        action: finalDecision.action,
-        outcome: outcome.outcome
-      },
+      payload: { text: finalDecision.response, action: finalDecision.action, outcome: outcome.outcome },
       tenantId: input.tenantId,
       correlationId: input.correlationId,
       causationId: input.eventId,
@@ -139,7 +126,15 @@ export async function runStaffLoop(
 
   } catch (err) {
     t("LOOP_FATAL_ERROR:" + String(err));
-    console.error("[FATAL_REAL]", err);
-    throw err;
+    console.error("[STAFF_LOOP_FATAL]", err);
+    // Even on FATAL (DB down etc), return a safe string. 
+    // The Webhook Shell will catch anything that escapes this.
+    return {
+      responseText: "Sorry, I'm having a bit of trouble. Let me check that for you.",
+      responseType: "error_degraded",
+      delivered: false,
+      latencyMs: Date.now() - start,
+      correlationId: input.correlationId,
+    };
   }
 }

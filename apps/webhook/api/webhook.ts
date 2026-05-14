@@ -1,86 +1,140 @@
 import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
+import { validateConfig } from "../../../infrastructure/config/index.js";
+import { createDatabaseClient, commitEvent } from "../../../infrastructure/database/index.js";
+import { runStaffLoop } from "../../../core/staff-loop/index.js";
+
+/**
+ * api/webhook.ts
+ *
+ * CHIOMA WhatsApp Webhook Handler.
+ * EXECUTION GUARANTEE LAYER (No-500 Policy).
+ */
 
 export default async function handler(req: any, res: any) {
-  const t = Date.now();
-  const log: string[] = [];
-  const l = (m: string) => { log.push(`[${Date.now() - t}ms] ${m}`); };
+  const start = Date.now();
+  const l = (m: string) => console.error(`[WEBHOOK] [${Date.now() - start}ms] ${m}`);
+
+  l("REQUEST_RECEIVED");
+
+  // 1. Handshake (GET)
+  if (req.method === "GET") {
+    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
+    if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === verifyToken) {
+      return res.status(200).send(req.query["hub.challenge"]);
+    }
+    return res.status(403).send("Forbidden");
+  }
+
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    l("IRONCLAD_ENTER");
+    const config = validateConfig();
     
-    if (req.method === "GET") {
-      const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
-      if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === verifyToken) {
-        return res.status(200).send(req.query["hub.challenge"]);
-      }
-      return res.status(403).send("Forbidden");
-    }
-
-    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-
-    const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
-    const APP_SECRET = process.env.WHATSAPP_APP_SECRET;
-    const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || "1108692132327986";
-
-    l("CONFIG_READY: " + (!!ACCESS_TOKEN && !!APP_SECRET));
-
+    // 2. Validate Signature
     const signature = req.headers["x-hub-signature-256"] as string;
     const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
     
-    if (APP_SECRET && signature) {
-      const expected = createHmac("sha256", APP_SECRET).update(rawBody, "utf8").digest("hex");
-      const received = signature.slice(7);
-      const sigValid = expected.length === received.length && timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(received, "hex"));
-      l("SIG_VALID: " + sigValid);
-      if (!sigValid) {
-        console.error("[WHATSAPP_MONOLOG] " + log.join(" | "));
-        return res.status(401).json({ error: "Invalid signature" });
-      }
+    if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "")) {
+      l("INVALID_SIGNATURE");
+      return res.status(401).json({ error: "Invalid signature" });
     }
 
+    // 3. Extract Meta Payload
     const entry = req.body?.entry?.[0];
     const value = entry?.changes?.[0]?.value;
     const messages = value?.messages;
 
     if (!messages || messages.length === 0) {
-      l("EXIT_NO_MSG");
-      console.error("[WHATSAPP_MONOLOG] " + log.join(" | "));
-      return res.status(200).json({ ok: true });
+      return res.status(200).json({ ok: true, ignored: true });
     }
 
-    const from = messages[0].from;
-    const text = messages[0].text?.body || "";
-    l("MSG_FROM: " + from);
+    const message = messages[0];
+    const from = message.from;
+    const text = message.text?.body || "";
+    const messageId = message.id;
 
-    const replyText = `[MONOLOG] CHIOMA received: "${text}"`;
+    l("PROCESSING_MESSAGE: " + from);
 
-    if (ACCESS_TOKEN) {
-      l("SEND_START");
-      const url = `https://graph.facebook.com/v21.0/${PHONE_ID}/messages`;
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${ACCESS_TOKEN}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          recipient_type: "individual",
-          to: from,
-          type: "text",
-          text: { body: replyText },
-        }),
+    const tenantId = `tenant_${value.metadata?.phone_number_id || "default"}`;
+    const correlationId = `corr_${messageId}`;
+
+    const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
+
+    try {
+      // 4. Idempotency Check
+      const [existing] = await sql`SELECT message_id FROM processed_messages WHERE message_id = ${messageId}`;
+      if (existing) {
+        l("DUPLICATE_SKIP");
+        return res.status(200).json({ ok: true, duplicate: true });
+      }
+
+      const eventId = randomUUID();
+      
+      // 5. Commit Ingress Event
+      await sql.begin(async (tx: any) => {
+        await tx`INSERT INTO processed_messages (message_id, tenant_id) VALUES (${messageId}, ${tenantId})`;
+        await commitEvent(tx, {
+          id: eventId,
+          type: "MESSAGE_RECEIVED",
+          payload: { channel: "whatsapp", from, text, waMessageId: messageId },
+          tenantId,
+          correlationId,
+          causationId: correlationId
+        });
       });
 
-      const result = await response.json();
-      l("SEND_STATUS: " + response.status);
-      l("SEND_BODY: " + JSON.stringify(result));
+      l("INVOKING_STAFF_LOOP");
+      
+      // 6. Execute Staff Loop (Guaranteed Return)
+      const result = await runStaffLoop(
+        { 
+          tenantId, 
+          senderPhone: from, 
+          messageText: text, 
+          correlationId, 
+          causationId: eventId, 
+          eventId, 
+          channel: "whatsapp" 
+        },
+        sql,
+        { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }
+      );
+
+      l("STAFF_LOOP_COMPLETE: " + result.responseType);
+
+      // 7. Dispatch Outbound Message
+      if (result.responseText) {
+        const { sendWhatsAppMessage } = await import("../../../infrastructure/whatsapp/index.js");
+        const phoneNumberId = value.metadata?.phone_number_id;
+        
+        if (phoneNumberId) {
+          l("DISPATCHING_WHATSAPP_REPLY");
+          await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText);
+          l("DISPATCH_SUCCESS");
+        }
+      }
+
+      l("FLOW_COMPLETED_SUCCESSFULLY");
+      return res.status(200).json({ ok: true });
+
+    } catch (innerErr) {
+      l("INNER_FAILURE: " + String(innerErr));
+      // Even if DB or Dispatch fails, we return 200 to acknowledge Meta
+      return res.status(200).json({ ok: false, error: "Internal processing error" });
+    } finally {
+      await sql.end();
     }
 
-    l("FLOW_COMPLETE");
-    console.error("[WHATSAPP_MONOLOG] " + log.join(" | "));
-    return res.status(200).json({ ok: true });
-
-  } catch (err: any) {
-    l("FATAL: " + err?.message);
-    console.error("[WHATSAPP_MONOLOG_FATAL] " + log.join(" | "));
-    return res.status(500).json({ error: "Internal server error" });
+  } catch (outerErr) {
+    l("OUTER_FAILURE: " + String(outerErr));
+    // NO 500 POLICY: Always return 200 with an error flag
+    return res.status(200).json({ ok: false, error: "Configuration or Ingress failure" });
   }
+}
+
+function validateSignature(rawBody: string, signature: string | null, secret: string): boolean {
+  if (!signature?.startsWith("sha256=")) return false;
+  const expected = createHmac("sha256", secret).update(rawBody, "utf8").digest("hex");
+  const received = signature.slice(7);
+  return expected.length === received.length && timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(received, "hex"));
 }
