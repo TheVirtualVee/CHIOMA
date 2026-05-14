@@ -29,7 +29,12 @@ export default async function handler(req: any, res: any) {
     return res.status(403).send("Forbidden");
   }
 
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  l("BEFORE_METHOD_CHECK");
+  if (req.method !== "POST") {
+    l("METHOD_NOT_POST");
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+  l("METHOD_IS_POST");
 
   try {
     l("VALIDATING_CONFIG_START");
