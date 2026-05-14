@@ -1,9 +1,13 @@
 import { CHIOMA_CONSTITUTION } from "./constitution.js";
 
+export type BehavioralMode = "PASS" | "REWRITE" | "BLOCK";
+
 export interface BehavioralAuditResult {
   passed: boolean;
+  mode: BehavioralMode;
   originalResponse: string;
   correctedResponse: string;
+  safeFallback: string;
   violations: BehavioralViolation[];
   score: number;
 }
@@ -13,6 +17,8 @@ export interface BehavioralViolation {
   severity: "WARNING" | "BLOCK" | "CORRECT";
   detail: string;
 }
+
+const SAFE_FALLBACK = "Thanks for reaching out. One moment while I process your request.";
 
 const EXCESSIVE_PUNCTUATION = /[!]{2,}|[?]{3,}/g;
 const EMOJI_PATTERN = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu;
@@ -168,7 +174,17 @@ export function enforceEmployeePsychology(response: string): BehavioralAuditResu
   corrected = corrected.replace(/\s{2,}/g, " ").trim();
 
   const blockViolations = violations.filter(v => v.severity === "BLOCK");
+  const correctionViolations = violations.filter(v => v.severity === "CORRECT");
   
+  let mode: BehavioralMode = "PASS";
+  if (blockViolations.length > 0) {
+    // If it's an identity breach, we BLOCK and fallback.
+    // If it's repairable but still has blocks, we attempt REWRITE.
+    mode = violations.some(v => v.rule === "IDENTITY_BREACH") ? "BLOCK" : "REWRITE";
+  } else if (correctionViolations.length > 0) {
+    mode = "REWRITE";
+  }
+
   // LAW_001: IDENTITY_ERASURE FATAL PENALTY
   const identityBreach = violations.some(v => v.rule === "IDENTITY_BREACH");
   const scoreBase = identityBreach ? 0.1 : 1.0;
@@ -176,9 +192,11 @@ export function enforceEmployeePsychology(response: string): BehavioralAuditResu
   const score = Math.max(0, scoreBase - (violations.length * 0.1) - (blockViolations.length * 0.3));
 
   return {
-    passed: blockViolations.length === 0 && !identityBreach,
+    passed: mode === "PASS",
+    mode,
     originalResponse: response,
-    correctedResponse: corrected,
+    correctedResponse: mode === "BLOCK" ? SAFE_FALLBACK : corrected,
+    safeFallback: SAFE_FALLBACK,
     violations,
     score,
   };

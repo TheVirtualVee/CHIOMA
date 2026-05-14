@@ -118,6 +118,7 @@ export default async function handler(req: any, res: any) {
             telemetry.record("SIDE_EFFECT_EXECUTED", { effectType: "WHATSAPP_MESSAGE", status: "SUCCESS" });
           } catch (waErr: unknown) {
             const msg = waErr instanceof Error ? waErr.message : String(waErr);
+            console.error(`[WEBHOOK] WHATSAPP_DISPATCH_FAILED: ${msg}`);
             telemetry.record("SIDE_EFFECT_EXECUTED", { effectType: "WHATSAPP_MESSAGE", status: "FAILED", error: msg });
           }
         }
