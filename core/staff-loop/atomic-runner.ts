@@ -15,6 +15,7 @@ import { RealityGovernor } from "../reality/governor.js";
 import { deductCredit } from "../billing/gate.js";
 import { runArbiter } from "../arbiter/index.js";
 import { ExecutionRequest } from "../contracts/index.js";
+import { getCanonicalIdentity } from "../identity/index.js";
 
 export async function runAtomicStaffLoop(
   input: StaffLoopInput,
@@ -34,6 +35,84 @@ export async function runAtomicStaffLoop(
   
   telemetry.record("ATOMIC_RUNNER_STARTED", { aggregateId, correlationId, workerId });
 
+  // 🧠 IDENTITY CANONICALIZATION (Phase 3.3)
+  const identityId = await getCanonicalIdentity(sql, input.tenantId, input.senderPhone);
+  telemetry.record("IDENTITY_RESOLVED", { identityId });
+
+  // ── EXECUTION ARBITER (CEA) GATE ───────────────────────────────
+  // Note: We run this BEFORE acquireLease to ensure arbitration is the first door.
+  telemetry.record("ARBITER_GATING_STARTED");
+  
+  // Check for competing scheduler active (any existing unexpired lease)
+  const [activeLease] = await sql`
+    SELECT worker_id FROM public.concurrency_leases 
+    WHERE aggregate_id = ${aggregateId} 
+      AND expires_at > NOW()
+      AND worker_id != ${workerId}
+    LIMIT 1
+  `;
+
+  const [commitmentData] = await sql`
+    SELECT count(*)::int as active_count, 
+           EXISTS(SELECT 1 FROM public.commitments WHERE tenant_id = ${input.tenantId} AND aggregate_id = ${aggregateId} AND status = 'PENDING') as has_pending
+    FROM public.commitments 
+    WHERE tenant_id = ${input.tenantId} 
+      AND aggregate_id = ${aggregateId} 
+      AND status = 'PENDING'
+  `;
+
+  const normalizedBody = input.messageText.trim().toLowerCase();
+  const fingerprint = createHash("sha256")
+    .update(input.tenantId + input.instanceId + input.messageId + normalizedBody)
+    .digest("hex");
+
+  const arbiterRequest: ExecutionRequest = {
+    tenantId: input.tenantId,
+    instanceId: input.instanceId,
+    triggeredBy: input.messageText.startsWith("/") ? "daily_brief" : "whatsapp_message",
+    commitmentPending: commitmentData?.has_pending ?? false,
+    activeCommitmentCount: commitmentData?.active_count ?? 0,
+    creditBalance: input.instance?.credit_units ?? 0,
+    creditRequired: 1,
+    tenantStatus: (input.instance?.billing_state.toLowerCase() as any) || "active",
+    safetyFlags: [], // TODO: Integrate safety classifier
+    requestedAt: Date.now(),
+    fingerprint,
+    identityId,
+    schedulerConflict: !!activeLease
+  };
+
+  const verdict = await runArbiter(arbiterRequest, sql, config.apiKey);
+  telemetry.record("ARBITER_GATING_FINISHED", { 
+    outcome: verdict.outcome, 
+    fingerprint: verdict.fingerprint,
+    trace: verdict.gateTrace 
+  });
+
+  if (verdict.outcome === 'BLOCK_RESPONSE') {
+    // If it's a scheduler conflict, we return a gentle deferral
+    const isConflict = verdict.controllerTriggered === 'Gate0_Arbitration';
+    return {
+      responseText: isConflict 
+        ? "I'm already working on your request. Just a moment!"
+        : "Your account requires attention. Please contact support.",
+      responseType: "conversation",
+      delivered: false,
+      latencyMs: Date.now() - start,
+      correlationId,
+    };
+  }
+
+  if (verdict.outcome === 'DEGRADE_RESPONSE') {
+    return {
+      responseText: "I'm having a bit of trouble right now. Please try again later.",
+      responseType: "error_degraded",
+      delivered: false,
+      latencyMs: Date.now() - start,
+      correlationId,
+    };
+  }
+
   // Acquire concurrency lease with fencing token
   const lease = await acquireLease(sql, aggregateId, workerId);
   if (!lease) {
@@ -47,6 +126,7 @@ export async function runAtomicStaffLoop(
     };
   }
   telemetry.record("EXECUTION_LEASE_ACQUIRED", { fencingToken: lease.fencingToken });
+
 
   try {
     const result = await sql.begin(async (tx: any) => {
@@ -131,66 +211,6 @@ export async function runAtomicStaffLoop(
         return {
           responseText: brief.response || "",
           responseType: "conversation",
-          delivered: false,
-          latencyMs: Date.now() - start,
-          correlationId,
-        };
-      }
-
-      // ── EXECUTION ARBITER (CEA) GATE ───────────────────────────────
-      telemetry.record("ARBITER_GATING_STARTED");
-      
-      const normalizedBody = input.messageText.trim().toLowerCase();
-      const fingerprint = createHash("sha256")
-        .update(input.tenantId + input.instanceId + input.messageId + normalizedBody)
-        .digest("hex");
-
-      const [commitmentData] = await tx`
-        SELECT count(*)::int as active_count, 
-               EXISTS(SELECT 1 FROM public.commitments WHERE tenant_id = ${input.tenantId} AND aggregate_id = ${aggregateId} AND status = 'PENDING') as has_pending
-        FROM public.commitments 
-        WHERE tenant_id = ${input.tenantId} 
-          AND aggregate_id = ${aggregateId} 
-          AND status = 'PENDING'
-      `;
-
-      const arbiterRequest: ExecutionRequest = {
-        tenantId: input.tenantId,
-        instanceId: input.instanceId,
-        triggeredBy: input.messageText.startsWith("/") ? "daily_brief" : "whatsapp_message",
-        commitmentPending: commitmentData?.has_pending ?? false,
-        activeCommitmentCount: commitmentData?.active_count ?? 0,
-        creditBalance: input.instance?.credit_units ?? 0,
-        creditRequired: 1,
-        tenantStatus: (input.instance?.billing_state.toLowerCase() as any) || "active",
-        safetyFlags: [], // TODO: Integrate safety classifier
-        requestedAt: Date.now(),
-        fingerprint
-      };
-
-      const verdict = await runArbiter(arbiterRequest, config.apiKey);
-      telemetry.record("ARBITER_GATING_FINISHED", { 
-        outcome: verdict.outcome, 
-        fingerprint: verdict.fingerprint,
-        trace: verdict.gateTrace 
-      });
-
-      if (verdict.outcome === 'BLOCK_RESPONSE') {
-        await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
-        return {
-          responseText: "Your account requires attention. Please contact support.",
-          responseType: "conversation",
-          delivered: false,
-          latencyMs: Date.now() - start,
-          correlationId,
-        };
-      }
-
-      if (verdict.outcome === 'DEGRADE_RESPONSE') {
-        await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
-        return {
-          responseText: "I'm having a bit of trouble right now. Please try again later.",
-          responseType: "error_degraded",
           delivered: false,
           latencyMs: Date.now() - start,
           correlationId,

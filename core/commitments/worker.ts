@@ -3,6 +3,8 @@ import { runAtomicStaffLoop } from "../staff-loop/atomic-runner.js";
 import { TelemetryManager, createTraceContext } from "../telemetry/index.js";
 import { Commitment, StaffLoopInput } from "../contracts/index.js";
 import { resolveInstanceByTenant } from "../routing/instance-router.js";
+import { runArbiter } from "../arbiter/index.js";
+import { getCanonicalIdentity } from "../identity/index.js";
 
 /**
  * CHIOMA Commitment Recovery Worker
@@ -61,6 +63,29 @@ export async function processOverdueCommitments(sql: any, config: { apiKey: stri
           }
           telemetry.setTenant(tenantId);
           telemetry.setInstance(instance.instance_id);
+
+          const identityId = await getCanonicalIdentity(sql, tenantId, aggregateId.replace("conv_", ""));
+
+          const arbiterRequest = {
+            tenantId,
+            instanceId: instance.instance_id,
+            triggeredBy: "commitment_recovery" as const,
+            commitmentPending: true,
+            activeCommitmentCount: 1, // Currently acting on 1
+            creditBalance: instance.credit_units ?? 0,
+            creditRequired: 1,
+            tenantStatus: (instance.billing_state.toLowerCase() as any) || "active",
+            safetyFlags: [],
+            requestedAt: Date.now(),
+            fingerprint: `recovery_${commitmentId}`,
+            identityId,
+            schedulerConflict: false // Worker has already claimed the lease in Stage 1
+          };
+
+          const verdict = await runArbiter(arbiterRequest, sql, config.apiKey);
+          if (verdict.outcome === 'BLOCK_RESPONSE') {
+            throw new Error(`ARBITER_BLOCK: ${verdict.reason}`);
+          }
 
           const messageId = `recovery_${commitmentId}_${Date.now()}`;
           

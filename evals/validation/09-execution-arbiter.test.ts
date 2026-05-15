@@ -15,7 +15,9 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
     safetyFlags: [],
     requestedAt: Date.now(),
     fingerprint: "test_fingerprint",
-    activeCommitmentCount: 0
+    activeCommitmentCount: 0,
+    identityId: "identity_test",
+    schedulerConflict: false
   };
 
   it("Scenario A: Billing overrides commitment (Insufficient credit + Commitment)", () => {

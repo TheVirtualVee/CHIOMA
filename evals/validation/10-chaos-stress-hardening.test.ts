@@ -15,8 +15,26 @@ describe("Phase 3.2 — CHAOS LAYER (Production Hardening)", () => {
     tenantStatus: "active",
     safetyFlags: [],
     requestedAt: Date.now(),
-    fingerprint: "chaos_hash_123"
+    fingerprint: "chaos_hash_123",
+    identityId: "identity_123",
+    schedulerConflict: false
   };
+
+  it("Hardening: Scheduler Arbitration (Gate 0 Precedence)", () => {
+    // Scenario: Recovery worker or ABM is already acting on this conversation
+    const request: ExecutionRequest = {
+      ...baseRequest,
+      schedulerConflict: true
+    };
+    
+    const verdict = evaluateGates(request);
+    
+    expect(verdict.outcome).toBe("BLOCK_RESPONSE");
+    expect(verdict.controllerTriggered).toBe("Gate0_Arbitration");
+    expect(verdict.gateTrace[0].gate).toBe("scheduler_arbitration");
+    expect(verdict.gateTrace[0].decision).toBe("blocked");
+  });
+
 
   it("Hardening: Commitment Throttling (Prevents Recovery DoS)", () => {
     // Scenario: User already has 1 active commitment, and tries to trigger another

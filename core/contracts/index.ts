@@ -138,6 +138,8 @@ export type ExecutionRequest = {
   requestedAt: number;
   fingerprint: string; // hash(tenantId + instanceId + messageId + normalizedBody)
   activeCommitmentCount: number;
+  identityId: string;
+  schedulerConflict: boolean;
 };
 
 export type GateTraceEntry = {

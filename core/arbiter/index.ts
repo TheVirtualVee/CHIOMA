@@ -17,6 +17,12 @@ export function evaluateGates(request: ExecutionRequest): {
 } {
   const gateTrace: GateTraceEntry[] = [];
 
+  // Gate 0: Scheduler Arbitration (Phase 3.3 Reality Stability)
+  if (request.schedulerConflict) {
+    gateTrace.push({ gate: 'scheduler_arbitration', decision: 'blocked', reason: 'COMPETING_SCHEDULER_ACTIVE' });
+    return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate0_Arbitration', reason: 'COMPETING_SCHEDULER_ACTIVE', gateTrace };
+  }
+
   // Gate 1: Billing Hard Block
   const billingPassed = !(request.creditBalance < request.creditRequired && request.tenantStatus !== 'active');
   gateTrace.push({ gate: 'billing', decision: billingPassed ? 'passed' : 'blocked', reason: billingPassed ? undefined : 'INSUFFICIENT_CREDITS' });
@@ -161,7 +167,7 @@ Include contextOverride (Max 1-3 sentences, business-safe only) or recoveryPaylo
 /**
  * Step 3 — Arbiter Orchestrator
  */
-export async function runArbiter(request: ExecutionRequest, apiKey: string): Promise<ArbiterVerdict> {
+export async function runArbiter(request: ExecutionRequest, sql: any, apiKey: string): Promise<ArbiterVerdict> {
   const start = Date.now();
   
   // 1. Evaluate deterministic gates
@@ -170,17 +176,32 @@ export async function runArbiter(request: ExecutionRequest, apiKey: string): Pro
   // 2. Enrich if needed
   const verdict = await enrichVerdict(request, gateResult, apiKey);
   
-  // 3. Log everything (Observability)
+  // 3. Log everything (Observability & Investor-Grade Telemetry)
   const durationMs = Date.now() - start;
+  
+  try {
+    await sql`
+      INSERT INTO public.cea_execution_logs (
+        tenant_id, instance_id, fingerprint, outcome, 
+        controller_triggered, gate_trace, duration_ms, triggered_by
+      ) VALUES (
+        ${request.tenantId}, ${request.instanceId}, ${request.fingerprint}, ${verdict.outcome},
+        ${verdict.controllerTriggered}, ${sql.json(verdict.gateTrace)}, ${durationMs}, ${request.triggeredBy}
+      )
+    `;
+  } catch (logErr) {
+    // Non-fatal, don't block execution if logging fails
+    console.error("[ARBITER] TELEMETRY_LOG_FAILED", logErr);
+  }
+
   console.log(`[ARBITER_EXECUTION] ${JSON.stringify({
     tenantId: request.tenantId,
     instanceId: request.instanceId,
     outcome: verdict.outcome,
-    controllerTriggered: verdict.controllerTriggered,
-    reason: verdict.reason,
     durationMs,
     triggeredBy: request.triggeredBy
   })}`);
 
   return verdict;
 }
+
