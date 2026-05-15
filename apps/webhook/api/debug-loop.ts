@@ -3,6 +3,7 @@ import { createDatabaseClient } from "../../../infrastructure/database/index.js"
 import { runAtomicStaffLoop } from "../../../core/staff-loop/atomic-runner.js";
 import { TelemetryManager, createTraceContext } from "../../../core/telemetry/index.js";
 import { randomUUID } from "node:crypto";
+import { resolveInstanceByTenant } from "../../../core/routing/instance-router.js";
 
 export default async function handler(req: any, res: any) {
   const workerId = `worker_debug_${process.env.VERCEL_REGION || "local"}`;
@@ -47,10 +48,16 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    const instance = await resolveInstanceByTenant(sql, tenantId);
+    if (!instance) {
+      throw new Error(`DEBUG_ERROR: No instance found for tenant ${tenantId}`);
+    }
+
     const result = await runAtomicStaffLoop(
       {
         messageId,
         tenantId,
+        instanceId: instance.instance_id,
         senderPhone: from,
         messageText: text,
         correlationId: `debug_corr_${messageId}`,
@@ -58,9 +65,14 @@ export default async function handler(req: any, res: any) {
         eventId,
         channel: "simulation",
         traceContext: trace,
+        instance,
       },
       sql,
-      { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER },
+      { 
+        apiKey: config.LLM_API_KEY, 
+        provider: instance.llm_config.provider,
+        model: instance.llm_config.model
+      },
       telemetry
     );
 

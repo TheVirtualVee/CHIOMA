@@ -3,6 +3,7 @@ import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient, commitEvent } from "../../../infrastructure/database/index.js";
 import { runAtomicStaffLoop } from "../../../core/staff-loop/atomic-runner.js";
 import { TelemetryManager, createTraceContext } from "../../../core/telemetry/index.js";
+import { resolveInstanceByTenant } from "../../../core/routing/instance-router.js";
 
 /**
  * api/simulate-message.ts — Dev simulation endpoint.
@@ -50,10 +51,16 @@ export default async function handler(req: any, res: any) {
 
       telemetry.record("LEDGER_WRITTEN", { status: "INSERTED" });
 
+      const instance = await resolveInstanceByTenant(sql, normalisedTenantId);
+      if (!instance) {
+        throw new Error(`SIMULATION_ERROR: No instance found for tenant ${normalisedTenantId}`);
+      }
+
       const result = await runAtomicStaffLoop(
         {
           messageId,
           tenantId: normalisedTenantId,
+          instanceId: instance.instance_id,
           senderPhone: from,
           messageText: text.trim(),
           correlationId,
@@ -61,9 +68,14 @@ export default async function handler(req: any, res: any) {
           eventId,
           channel: "simulation",
           traceContext: trace,
+          instance,
         },
         sql,
-        { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER },
+        { 
+          apiKey: config.LLM_API_KEY, 
+          provider: instance.llm_config.provider,
+          model: instance.llm_config.model
+        },
         telemetry
       );
 

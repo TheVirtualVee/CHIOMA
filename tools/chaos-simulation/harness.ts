@@ -48,6 +48,10 @@ export async function runChaosSimulation() {
     const tenantId = `tenant_chaos_${Date.now()}`;
     
     // Bootstrap
+    const instanceId = `inst_chaos_${tenantId}`;
+    await sql`INSERT INTO chioma_instances (instance_id, tenant_id, whatsapp_phone_number, whatsapp_phone_number_id, billing_state, credit_units, llm_provider, llm_model) 
+              VALUES (${instanceId}, ${tenantId}, '12345', '12345', 'ACTIVE', 1000, 'groq', 'llama-3.3-70b-versatile') 
+              ON CONFLICT DO NOTHING`;
     await sql`INSERT INTO employer_profiles (tenant_id, onboarding_status, tone_profile) VALUES (${tenantId}, 'COMPLETED', 'friendly-shopkeeper') ON CONFLICT DO NOTHING`;
     await sql`INSERT INTO business_facts (tenant_id, key, value) VALUES (${tenantId}, 'products', ${sql.json(['Blue Ankara Lace'])}) ON CONFLICT DO NOTHING`;
 
@@ -59,6 +63,7 @@ export async function runChaosSimulation() {
       const input = {
         messageId,
         tenantId,
+        instanceId,
         senderPhone: step.sender,
         messageText: step.text,
         correlationId: `chaos_${Date.now()}`,
@@ -69,7 +74,11 @@ export async function runChaosSimulation() {
       };
 
       try {
-        const result = await runAtomicStaffLoop(input, sql, { apiKey: config.LLM_API_KEY, provider: config.LLM_PROVIDER }, telemetry);
+        const result = await runAtomicStaffLoop(input, sql, { 
+          apiKey: config.LLM_API_KEY, 
+          provider: config.LLM_PROVIDER,
+          model: 'llama-3.3-70b-versatile'
+        }, telemetry);
         telemetry.complete("COMPLETED");
         
         console.log(`[INPUT]: ${step.text}`);

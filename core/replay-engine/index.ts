@@ -4,6 +4,7 @@ import { createDatabaseClient } from "../../infrastructure/database/index.js";
 import { validateConfig } from "../../infrastructure/config/index.js";
 import { TelemetryManager, createTraceContext } from "../telemetry/index.js";
 import { randomUUID } from "node:crypto";
+import { resolveInstanceByTenant } from "../routing/instance-router.js";
 
 const MAX_RETRIES = 3;
 
@@ -47,14 +48,23 @@ export async function replayFailedMessages(sql: postgres.Sql) {
       `;
 
       // 3. Re-run the atomic staff loop
+      const instance = await resolveInstanceByTenant(sql, msg.tenant_id);
+      if (!instance) {
+        throw new Error(`REPLAY_ERROR: Instance not found for tenant ${msg.tenant_id}`);
+      }
+
       const input = {
         ...msg.payload,
-        traceContext: trace
+        instanceId: instance.instance_id,
+        tenantId: msg.tenant_id,
+        traceContext: trace,
+        instance,
       };
       
       await runAtomicStaffLoop(input, sql, { 
         apiKey: config.LLM_API_KEY, 
-        provider: config.LLM_PROVIDER 
+        provider: instance.llm_config.provider,
+        model: instance.llm_config.model
       }, telemetry);
 
       // 4. Mark Complete

@@ -11,6 +11,7 @@ const env = fs.readFileSync(envPath, "utf-8");
 const databaseUrl = env.match(/DATABASE_URL=(.+)/)?.[1]?.replace(/"/g, "").trim();
 const apiKey = env.match(/GROQ_API_KEY=(.+)/)?.[1]?.replace(/"/g, "").trim();
 const provider = env.match(/LLM_PROVIDER=(.+)/)?.[1]?.replace(/"/g, "").trim();
+const model = "llama-3.3-70b-versatile"; // Default for simulation
 
 if (!databaseUrl || !apiKey) {
   console.error("Missing critical environment variables (DATABASE_URL or GROQ_API_KEY)");
@@ -43,18 +44,30 @@ async function runTrustSimulation() {
     // We prime the ledger
     await sql`INSERT INTO public.message_ledger (message_id, tenant_id, status) VALUES (${messageId}, ${testTenant}, 'RECEIVED')`;
 
+    const { resolveInstanceByTenant } = await import("../core/routing/instance-router.js");
+    const instance = await resolveInstanceByTenant(sql, testTenant);
+    if (!instance) {
+      throw new Error(`SIMULATION_ERROR: No instance found for tenant ${testTenant}`);
+    }
+
     const initialInput: any = {
       messageId,
       tenantId: testTenant,
+      instanceId: instance.instance_id,
       senderPhone: testPhone,
       messageText: "Hi! Can you tell me the price for a deluxe room? Also, I want to know if you have any available for this weekend.",
       correlationId: `corr_${messageId}`,
       causationId: messageId,
       eventId: `evt_${randomUUID()}`,
-      channel: "whatsapp"
+      channel: "whatsapp",
+      instance,
     };
 
-    const ingressResult = await runAtomicStaffLoop(initialInput, sql, { apiKey: apiKey as string, provider: provider as string }, telemetry);
+    const ingressResult = await runAtomicStaffLoop(initialInput, sql, { 
+      apiKey: apiKey as string, 
+      provider: instance.llm_config.provider,
+      model: instance.llm_config.model
+    }, telemetry);
     console.log(`✅ INGRESS COMPLETE. Response: "${ingressResult.responseText}"`);
 
     // 🎭 STAGE 2: COMMITMENT VERIFICATION
