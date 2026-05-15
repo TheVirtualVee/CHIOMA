@@ -18,6 +18,7 @@ export async function appendEvent(sql: any, event: ChiomaEvent): Promise<void> {
   await sql`
     INSERT INTO core.events (
       id,
+      tenant_id,
       aggregate_id,
       aggregate_type,
       sequence_number,
@@ -31,6 +32,7 @@ export async function appendEvent(sql: any, event: ChiomaEvent): Promise<void> {
       content_hash
     ) VALUES (
       ${event.eventId},
+      ${event.tenantId},
       ${event.aggregateId},
       ${event.aggregateType},
       ${event.sequenceNumber},
@@ -69,6 +71,7 @@ export async function loadEventsAfter(
 
   return rows.map((row: any) => ({
     eventId: row.id,
+    tenantId: row.tenant_id,
     aggregateId: row.aggregate_id,
     aggregateType: row.aggregate_type,
     sequenceNumber: row.sequence_number,

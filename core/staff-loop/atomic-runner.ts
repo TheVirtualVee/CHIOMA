@@ -101,14 +101,38 @@ export async function runAtomicStaffLoop(
       const evaluation = evaluateEmployeePerformance(loopResult.decision, audit, loopResult.latencyMs);
 
       const seq = await getNextSequenceNumber(tx, aggregateId);
-      
-      const proposalEvent = {
-        eventId: randomUUID(),
+
+      const messageReceivedEvent = {
+        eventId: input.eventId,
+        tenantId: input.tenantId,
+        type: "MESSAGE_RECEIVED" as const,
+        payload: {
+          channel: input.channel,
+          from: input.senderPhone,
+          text: input.messageText,
+          waMessageId: input.messageId
+        },
         aggregateId,
         aggregateType: "CONVERSATION" as const,
         sequenceNumber: seq,
+        causationId: input.correlationId,
+        correlationId,
+        ledgerEntryId: input.messageId,
+        occurredAt: new Date().toISOString(),
+        schemaVersion: 1,
+        contentHash: "",
+      };
+      messageReceivedEvent.contentHash = buildContentHash(messageReceivedEvent.payload);
+      await appendEvent(tx, messageReceivedEvent);
+      
+      const proposalEvent = {
+        eventId: randomUUID(),
+        tenantId: input.tenantId,
+        aggregateId,
+        aggregateType: "CONVERSATION" as const,
+        sequenceNumber: seq + 1,
         type: "PROPOSAL_GENERATED" as const,
-        causationId: input.eventId,
+        causationId: messageReceivedEvent.eventId,
         correlationId,
         ledgerEntryId: input.messageId,
         occurredAt: new Date().toISOString(),
@@ -156,9 +180,10 @@ export async function runAtomicStaffLoop(
 
       const planEvent = {
         eventId: randomUUID(),
+        tenantId: input.tenantId,
         aggregateId,
         aggregateType: "CONVERSATION" as const,
-        sequenceNumber: seq + 1,
+        sequenceNumber: seq + 2,
         type: "ACTION_PLAN_COMPILED" as const,
         causationId: proposalEvent.eventId,
         correlationId,
@@ -197,9 +222,10 @@ export async function runAtomicStaffLoop(
 
         await appendEvent(tx, {
           eventId: randomUUID(),
+          tenantId: input.tenantId,
           aggregateId,
           aggregateType: "CONVERSATION" as const,
-          sequenceNumber: seq + 2,
+          sequenceNumber: seq + 3,
           type: "SIDE_EFFECT_DISPATCHED" as const,
           causationId: planEvent.eventId,
           correlationId,

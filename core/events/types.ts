@@ -1,5 +1,6 @@
 export interface BaseEvent {
   readonly eventId: string;
+  readonly tenantId: string;
   readonly aggregateId: string;
   readonly aggregateType: "CONVERSATION" | "EMPLOYER" | "SYSTEM";
   readonly sequenceNumber: number;
@@ -14,11 +15,10 @@ export interface BaseEvent {
 export interface MessageReceivedEvent extends BaseEvent {
   type: "MESSAGE_RECEIVED";
   payload: {
-    whatsappMessageId: string;
-    senderId: string;
-    content: string;
-    receivedAt: string;
-    idempotencyKey: string;
+    channel: "whatsapp" | "simulation";
+    from: string;
+    text: string;
+    waMessageId: string;
   };
 }
 
