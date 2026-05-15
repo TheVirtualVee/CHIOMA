@@ -37,6 +37,8 @@ async function bootstrap() {
         tenant_id, 
         whatsapp_phone_number, 
         whatsapp_phone_number_id, 
+        llm_provider,
+        llm_model,
         memory_namespace,
         billing_state,
         credit_units
@@ -45,6 +47,8 @@ async function bootstrap() {
         ${tenantId}, 
         ${phoneNumber}, 
         ${phoneId}, 
+        'groq',
+        'llama-3.3-70b-versatile',
         ${`mem_${tenantId}`},
         'ACTIVE',
         100

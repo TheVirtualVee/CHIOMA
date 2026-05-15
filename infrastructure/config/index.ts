@@ -3,7 +3,7 @@ import { z } from "zod";
 const ConfigSchema = z.object({
   DATABASE_URL: z.string().startsWith("postgres"),
   LLM_API_KEY: z.string().min(1),
-  LLM_PROVIDER: z.enum(["openai", "groq", "openrouter"]).default("openai"),
+  LLM_PROVIDER: z.enum(["openai", "groq", "openrouter"]).default("groq"),
   WHATSAPP_VERIFY_TOKEN: z.string().min(1),
   WHATSAPP_ACCESS_TOKEN: z.string().min(1),
   WHATSAPP_APP_SECRET: z.string().min(1),
