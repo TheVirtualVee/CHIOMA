@@ -24,7 +24,9 @@ export function evaluateGates(request: ExecutionRequest): {
   }
 
   // Gate 1: Billing Hard Block
-  const billingPassed = !(request.creditBalance < request.creditRequired && request.tenantStatus !== 'active');
+  // SAFETY: Use explicit ?? 0 — undefined credits must never miscalculate as a block.
+  const credits = request.creditBalance ?? 0;
+  const billingPassed = !(credits < request.creditRequired && request.tenantStatus !== 'active');
   gateTrace.push({ gate: 'billing', decision: billingPassed ? 'passed' : 'blocked', reason: billingPassed ? undefined : 'INSUFFICIENT_CREDITS' });
   if (!billingPassed) {
      return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate1_Billing', reason: 'INSUFFICIENT_CREDITS', gateTrace };
@@ -153,12 +155,15 @@ Include contextOverride (Max 1-3 sentences, business-safe only) or recoveryPaylo
     };
 
   } catch (err) {
-    console.error("[ARBITER] ENRICHMENT_FAILED", err);
+    // CRITICAL: Enrichment failure must NEVER produce DEGRADE_RESPONSE.
+    // A Groq timeout during enrichment should not kill a customer interaction.
+    // Fall back to the pre-computed base verdict with ALLOW outcome.
+    console.error("[ARBITER] ENRICHMENT_FAILED — falling back to base verdict:", err);
     return {
       ...baseVerdict,
-      outcome: 'DEGRADE_RESPONSE',
-      controllerTriggered: 'gemini_failure_fallback',
-      reason: 'ENRICHMENT_TIMEOUT_OR_ERROR'
+      outcome: gateResult.outcome === 'ALLOW_WITH_CONTEXT_OVERRIDE' ? 'ALLOW' : gateResult.outcome,
+      controllerTriggered: 'enrichment_timeout_fallback',
+      reason: 'ENRICHMENT_FAILED_SAFE_ALLOW'
     };
   }
 }

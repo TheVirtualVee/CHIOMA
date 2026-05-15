@@ -11,6 +11,21 @@ import { ExecutionRequest, StaffLoopInput, StaffLoopResult } from "../contracts/
  * Phase 5 — Execution Resilience & Adaptive Governance
  */
 
+// ── GREETING BYPASS ────────────────────────────────────────────────────
+// These are state-neutral inputs. They must NEVER enter the arbiter or
+// enricher pipeline. Routing them through arbitration adds latency and
+// creates an unnecessary enrichment failure surface.
+const SIMPLE_GREETINGS = new Set([
+  "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
+  "good day", "howdy", "greetings", "sup", "what's up", "whats up",
+  "morning", "afternoon", "evening", "hello there", "hi there"
+]);
+
+function isSimpleGreeting(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/[!?.]+$/, "");
+  return SIMPLE_GREETINGS.has(normalized);
+}
+
 class LoadMonitor {
   private latencies: number[] = [];
   private windowSize = 20;
@@ -58,13 +73,25 @@ export class ExecutionKernel {
 
     this.activeExecutions++;
     try {
-      // 2. IDENTITY CANONICALIZATION
+    // 2. GREETING BYPASS — short-circuit before arbiter
+      // Simple greetings are state-neutral. They skip arbitration entirely.
+      if (isSimpleGreeting(input.messageText)) {
+        telemetry.record("GREETING_BYPASS", { message: input.messageText.slice(0, 20) });
+        const greetResult = await runStaffLoopSimplified(
+          { ...input, executionMode: "GREETING_ALLOWED" as any },
+          sql, config, telemetry
+        );
+        monitor.record(greetResult.latencyMs);
+        return { ...greetResult, latencyBreakdown: { totalMs: Date.now() - startTime } };
+      }
+
+      // 3. IDENTITY CANONICALIZATION
       const identityStart = Date.now();
       const identityId = await getCanonicalIdentity(sql, input.tenantId, input.senderPhone);
       breakdown.identityMs = Date.now() - identityStart;
       telemetry.record("IDENTITY_RESOLVED", { identityId });
 
-      // 3. SCHEDULER ARBITRATION
+      // 4. SCHEDULER ARBITRATION
       const arbStart = Date.now();
       const aggregateId = `conv_${input.senderPhone}`;
       const [activeLease] = await sql`
