@@ -129,6 +129,16 @@ export function isWithinWorkingHours(now: Date, workingHours: string): boolean {
  * Ensures no hallucinated prices reach the customer.
  */
 export function sanitizeStaffReply(reply: string, businessKnowledge: any[]): { sanitizedReply: string, actionOverride?: "ESCALATE" } {
+  // INVARIANT: Staff must never send an empty or whitespace-only message.
+  // An empty reply is silent failure — escalate so the owner is aware.
+  if (!reply || reply.trim().length === 0) {
+    console.warn("SANITIZE_EMPTY_REPLY: Reply was blank — returning escalation fallback");
+    return {
+      sanitizedReply: "I'm just following up to make sure I haven't missed anything. Could you let me know how I can help?",
+      actionOverride: "ESCALATE",
+    };
+  }
+
   // Regex to detect currency patterns: ₦1,000, $50, etc.
   const priceRegex = /(?:₦|\$|£|GH₵)\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?/g;
   const foundPrices = reply.match(priceRegex);
