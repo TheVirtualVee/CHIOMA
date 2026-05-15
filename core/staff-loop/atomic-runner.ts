@@ -233,6 +233,14 @@ export async function runAtomicStaffLoop(
       // Handle QUEUE_FOR_RECOVERY or context overrides
       const extraContext = verdict.contextOverride ? `\n\n[ARBITER_OVERRIDE]: ${verdict.contextOverride}` : "";
 
+      // ── ACIL: Active Commitment Injection ───────────────────────
+      let activeCommitmentContext = "";
+      try {
+        activeCommitmentContext = await buildActiveCommitmentContext(tx, input);
+      } catch (acilErr: unknown) {
+        telemetry.record("ACIL_LOOKUP_FAILED", { reason: String(acilErr).slice(0, 80) });
+      }
+
       // ── EXECUTION MODE GATE (CESM) ──────────────────────────────
       // ASSERT: Determine structural generation constraints before LLM runs.
       let executionMode: ExecutionMode = "GREETING_ALLOWED";
@@ -248,8 +256,8 @@ export async function runAtomicStaffLoop(
       const loopResult = await runStaffLoop({
         ...input,
         messageText: input.messageText + extraContext,
-        executionMode // ← Pass structural constraint
-      }, tx, config, profile);
+        executionMode
+      }, tx, config, profile, activeCommitmentContext); // ← Pass context as argument
       telemetry.record("INFERENCE_COMPLETED", { latencyMs: loopResult.latencyMs });
       
       // ASSERT: return fallback instead of throw — throw kills the TX and
