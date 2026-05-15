@@ -91,4 +91,3 @@ POST /api/simulate-message
 2. **Reliability > Intelligence**: Reliable business presence under uncertainty.
 3. **Knowledge Lock**: Every business fact is confirmed by the Employer.
 4. **No Silent Failures**: Every interaction is observable and explainable.
-
