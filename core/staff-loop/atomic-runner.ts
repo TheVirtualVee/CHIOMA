@@ -6,7 +6,8 @@ import { processDailyBriefStep } from "../../services/daily-briefing-service/ind
 import { 
   StaffLoopInput, 
   StaffLoopResult, 
-  EmployabilityProfile
+  EmployabilityProfile,
+  DeliveryContract
 } from "../contracts/index.js";
 import { TelemetryManager } from "../telemetry/index.js";
 import { acquireLease, releaseLease } from "../concurrency/index.js";
@@ -37,7 +38,7 @@ export async function runAtomicStaffLoop(
   sql: any,
   config: { apiKey: string; provider: string; model: string },
   telemetry: TelemetryManager
-): Promise<StaffLoopResult> {
+): Promise<StaffLoopResult & { deliveryContract: DeliveryContract }> {
   const start = Date.now();
   const correlationId = input.correlationId || `corr_${input.messageId}`;
   const aggregateId = `conv_${input.senderPhone}`;
@@ -57,6 +58,14 @@ export async function runAtomicStaffLoop(
         delivered: false,
         latencyMs: Date.now() - start,
         correlationId,
+        deliveryContract: {
+          traceId: telemetry.getTimeline().traceId,
+          tenantId: input.tenantId,
+          instanceId: input.instanceId,
+          intent: "SEND",
+          payload: { to: input.senderPhone, text: "I'm already working on your request. Just a moment!" },
+          deliveryState: "PENDING"
+        }
       };
     }
     leaseToken = lease.fencingToken;
@@ -120,6 +129,19 @@ export async function runAtomicStaffLoop(
       loopResult.responseText = getSafetyFallback(mode);
     }
 
+    const dglContract: DeliveryContract = {
+      traceId: telemetry.getTimeline().traceId,
+      tenantId: input.tenantId,
+      instanceId: input.instanceId,
+      intent: "SEND",
+      payload: { to: input.senderPhone, text: loopResult.responseText },
+      deliveryState: "PENDING"
+    };
+
+    if (input.state.intent.mode !== ("DAILY_BRIEF" as any) && dglContract.intent !== "SEND") {
+      throw new Error("[DGL_INVARIANT_VIOLATION] Missing delivery contract intent");
+    }
+
     if (loopResult.responseType === 'conversation') {
       await deductCredit(tx, input.instanceId, input.tenantId, correlationId, 1);
     }
@@ -154,7 +176,7 @@ export async function runAtomicStaffLoop(
     if (leaseToken) await releaseLease(sql, aggregateId, workerId, leaseToken);
     
     telemetry.record("EXECUTION_FINALIZED", { responseType: loopResult.responseType });
-    return loopResult;
+    return { ...loopResult, deliveryContract: dglContract };
 
   } catch (err: any) {
     await sql`ROLLBACK`;
@@ -181,6 +203,14 @@ export async function runAtomicStaffLoop(
       delivered: false,
       latencyMs: Date.now() - start,
       correlationId: correlationId,
+      deliveryContract: {
+        traceId: telemetry.getTimeline().traceId,
+        tenantId: input.tenantId,
+        instanceId: input.instanceId,
+        intent: "SEND",
+        payload: { to: input.senderPhone, text: degradedText },
+        deliveryState: "PENDING"
+      }
     };
   }
 }

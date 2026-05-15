@@ -7,6 +7,7 @@ import { resolveInstance } from "../../../core/routing/instance-router.js";
 import { notifyFounder, isFounderNumber } from "../../../core/founder/control-plane.js";
 import { processFounderCommand } from "../../../core/founder/command-engine.js";
 import { ExecutionKernel } from "../../../core/kernel/execution-kernel.js";
+import { DeliveryGuaranteeLayer } from "../../../core/delivery/index.js";
 
 export default async function handler(req: any, res: any) {
   try {
@@ -99,9 +100,14 @@ export default async function handler(req: any, res: any) {
         model: instance.llm_config.model,
       }, telemetry);
 
-      if (result.responseText) {
-        await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText, trace);
-        telemetry.record("DELIVERY_COMMITTED", { channel: "whatsapp" });
+      if (result.deliveryContract) {
+        const deliveryConfig = {
+          phoneNumberId: phoneNumberId,
+          accessToken: config.WHATSAPP_ACCESS_TOKEN
+        };
+        await DeliveryGuaranteeLayer.execute(result.deliveryContract, sql, deliveryConfig, telemetry);
+      } else {
+        telemetry.record("DGL_INVARIANT_VIOLATION", { reason: "MISSING_CONTRACT" });
       }
 
       telemetry.complete("COMPLETED");

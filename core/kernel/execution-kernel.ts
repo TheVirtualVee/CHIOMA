@@ -43,7 +43,7 @@ export class ExecutionKernel {
     sql: any,
     config: { apiKey: string; provider: string; model: string },
     telemetry: TelemetryManager
-  ): Promise<StaffLoopResult> {
+  ): Promise<StaffLoopResult & { deliveryContract?: any }> {
     const startTime = Date.now();
     this.activeExecutions++;
 
@@ -59,10 +59,10 @@ export class ExecutionKernel {
 
       switch (state.execution.status) {
         case "BLOCKED":
-          return this.handleBlocked(state, startTime, input.correlationId);
+          return this.handleBlocked(state, startTime, input.correlationId, input);
 
         case "DEGRADED":
-          return this.degradedFallback(startTime, input.correlationId, state.execution.reason);
+          return this.degradedFallback(startTime, input.correlationId, state.execution.reason, input);
 
         case "READY":
         default:
@@ -74,7 +74,7 @@ export class ExecutionKernel {
       }
     } catch (err: any) {
       telemetry.record("KERNEL_PANIC", { error: err.message });
-      return this.degradedFallback(startTime, input.correlationId, "INTERNAL_KERNEL_FAULT");
+      return this.degradedFallback(startTime, input.correlationId, "INTERNAL_KERNEL_FAULT", input);
     } finally {
       this.activeExecutions--;
     }
@@ -163,7 +163,7 @@ export class ExecutionKernel {
     };
   }
 
-  private static handleBlocked(state: ExecutionState, start: number, correlationId: string): StaffLoopResult {
+  private static handleBlocked(state: ExecutionState, start: number, correlationId: string, input: any): any {
     const text = state.execution.reason === 'INSUFFICIENT_CREDITS'
       ? "Your CHIOMA service requires a top-up to continue. Please contact your business owner."
       : "Your account requires attention. Please contact support.";
@@ -173,17 +173,34 @@ export class ExecutionKernel {
       responseType: "conversation",
       delivered: false,
       latencyMs: Date.now() - start,
-      correlationId
+      correlationId,
+      deliveryContract: {
+        traceId: correlationId,
+        tenantId: input.tenantId,
+        instanceId: input.instanceId,
+        intent: "SEND",
+        payload: { to: input.senderPhone, text },
+        deliveryState: "PENDING"
+      }
     };
   }
 
-  private static degradedFallback(start: number, correlationId: string, reason?: string | null): StaffLoopResult {
+  private static degradedFallback(start: number, correlationId: string, reason: string | null, input: any): any {
+    const text = "I'm still pulling that together for you — one moment.";
     return {
-      responseText: "I'm still pulling that together for you — one moment.",
+      responseText: text,
       responseType: "error_degraded",
       delivered: false,
       latencyMs: Date.now() - start,
       correlationId,
+      deliveryContract: {
+        traceId: correlationId,
+        tenantId: input.tenantId,
+        instanceId: input.instanceId,
+        intent: "SEND",
+        payload: { to: input.senderPhone, text },
+        deliveryState: "PENDING"
+      }
     };
   }
 }

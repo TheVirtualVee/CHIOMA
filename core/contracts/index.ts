@@ -213,7 +213,20 @@ export type ArbiterVerdict = {
   resolvedAt: number;
   fingerprint: string;
   latencyBreakdown?: LatencyBreakdown;
+};export type DeliveryContract = {
+  traceId: string;
+  tenantId: string;
+  instanceId: string;
+  intent: "SEND" | "NO_SEND";
+  payload?: {
+    to: string;
+    text: string;
+  };
+  deliveryState:
+    | "PENDING"
+    | "SENT"
+    | "FAILED"
+    | "QUEUED"
+    | "SKIPPED";
+  reason?: string;
 };
-
-
-
