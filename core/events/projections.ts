@@ -18,7 +18,7 @@ export function applyEvent(state: ProjectedState, event: ChiomaEvent): Projected
       return {
         ...state,
         lastMessageAt: event.occurredAt,
-        pendingMessageId: event.payload.waMessageId,
+        pendingMessageId: event.payload.waMessageId ?? null,
       };
 
     case "PROPOSAL_GENERATED":

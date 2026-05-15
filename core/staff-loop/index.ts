@@ -10,7 +10,72 @@ import { validateStaffAction, sanitizeStaffReply } from "../staff-rules/index.js
 import { enforceEmployeePsychology } from "../staff-rules/behavioral-enforcer.js";
 import { generateStaffReply } from "../../services/response-service/index.js";
 import { enforceMemoryGovernance, createGovernedMemory } from "../memory/governance.js";
-import { buildActiveCommitmentContext } from "../commitments/acil.js";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROMPT BUILDER — Separated layers, deterministic ordering
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildStrategicDirective(
+  executionMode: string | undefined,
+  currentGoal: string
+): string {
+  if (executionMode === "COMMITMENT_RESOLUTION") {
+    return `## STRATEGIC_EXECUTION_DIRECTIVE [MODE: COMMITMENT_RESOLUTION]
+- STATUS: You have an ACTIVE, UNFULFILLED commitment to this customer.
+- CONSTRAINT: Do NOT greet. Do NOT reset. Do NOT start a new topic.
+- ACTION: Your ONLY job is to follow through on your pending commitment.
+- CURRENT COMMITMENT: "${currentGoal}"`;
+  }
+
+  if (executionMode === "CONTINUATION_ONLY") {
+    return `## STRATEGIC_EXECUTION_DIRECTIVE [MODE: CONTINUATION_ONLY]
+- STATUS: This is an ONGOING conversation. The customer has already been greeted.
+- CONSTRAINT: Do NOT say "Hello", "Hi", "How can I assist you", or any greeting.
+- ACTION: Respond directly to the current message as a continuation of the active thread.
+- THREAD CONTEXT: "${currentGoal}"`;
+  }
+
+  return `## STRATEGIC_EXECUTION_DIRECTIVE [MODE: GREETING_ALLOWED]
+- STATUS: New session or distinct new intent detected.
+- ACTION: Greet the customer professionally and identify their need.`;
+}
+
+function buildConversationHeartbeat(
+  lastNeed: string,
+  currentGoal: string
+): string {
+  if (!lastNeed && !currentGoal) {
+    return "## SESSION: New — no prior interaction on record.";
+  }
+  return `## CONVERSATION_HEARTBEAT [ACTIVE SESSION]:
+- Last Declared Need: "${lastNeed}"
+- Current Active Goal: "${currentGoal}"
+- NOTE: This customer has an open thread. Continue it directly.`;
+}
+
+function buildSystemBrief(
+  executionMode: string | undefined,
+  lastNeed: string,
+  currentGoal: string,
+  activeCommitmentContext: string,
+  realityGrounding: string,
+  facts: { key: string; value: any }[],
+  isRecovery: boolean
+): string {
+  return [
+    buildStrategicDirective(executionMode, currentGoal), // Layer 1: Behavioral constraint
+    buildConversationHeartbeat(lastNeed, currentGoal),   // Layer 2: Thread context
+    activeCommitmentContext || null,                     // Layer 3: Pending obligations
+    isRecovery ? "CRITICAL: You are in a recovery scenario. Acknowledge and stabilize." : null,
+    realityGrounding,                                    // Layer 4: Business facts
+    ...facts.map(f => `${f.key}: ${JSON.stringify(f.value)}`)
+  ].filter(Boolean).join("\n\n");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAFF LOOP — Pure cognition executor
+// State is loaded by the Atomic Runner and passed in.
+// ─────────────────────────────────────────────────────────────────────────────
 
 export async function runStaffLoop(
   input: StaffLoopInput,
@@ -20,124 +85,104 @@ export async function runStaffLoop(
   activeCommitmentContext: string = ""
 ): Promise<StaffLoopResult> {
   const start = Date.now();
-  const t = (m: string) => console.log(`[STAFF_LOOP_TRACE] [${Date.now() - start}ms] ${m}`);
-  
+  const t = (m: string) => console.log(`[STAFF_LOOP] [${Date.now() - start}ms] ${m}`);
+
   try {
-    // ASSERT: customer_memory and business_facts may not exist yet for new tenants.
-    // Wrap reads in try/catch — missing tables must never block LLM inference.
+    // ── INTENT MEMORY (read-only — write happens in Atomic Runner after inference)
     let state: any = null;
     let facts: { key: string; value: any }[] = [];
+
     try {
-      const [stateRow]: any[] = await sql`SELECT last_customer_need, current_goal FROM customer_memory WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}`;
+      const [stateRow]: any[] = await sql`
+        SELECT last_customer_need, current_goal 
+        FROM public.customer_memory 
+        WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}
+      `;
       state = stateRow ?? null;
-    } catch { /* Table may not exist for this tenant yet */ }
+    } catch { /* Non-fatal: new tenant has no memory yet */ }
+
     try {
-      facts = await sql`SELECT key, value FROM business_facts WHERE tenant_id = ${input.tenantId} LIMIT 20`;
-    } catch { /* Table may not exist for this tenant yet */ }
-    
-    // Governed Memory Scrubbing
+      facts = await sql`SELECT key, value FROM public.business_facts WHERE tenant_id = ${input.tenantId} LIMIT 20`;
+    } catch { /* Non-fatal: business facts may not be seeded yet */ }
+
+    // ── FACT MEMORY — governed scrubbing prevents stale/invalid data
     const rawMemories = [
       createGovernedMemory("last_customer_need", state?.last_customer_need || ""),
       createGovernedMemory("current_goal", state?.current_goal || "")
     ];
     const governedMemories = enforceMemoryGovernance(rawMemories);
 
+    const lastNeed = governedMemories.find(m => m.key === "last_customer_need")?.value || "";
+    const currentGoal = governedMemories.find(m => m.key === "current_goal")?.value || "";
     const isRecovery = input.messageText.includes("[SYSTEM_RECOVERY_TRIGGER]");
 
-    // ── BRSE Reality Injection ─────────────────────────────────────
-    // ASSERT: business_snapshots may not exist for pre-BRSE tenants — degrade gracefully
-    let lockedSnapshot: any = null;
+    // ── REALITY GROUNDING — daily briefing snapshot
+    let realityGrounding = "No daily briefing locked for today. Rely on general business knowledge.";
     try {
       const [snap] = await sql`
         SELECT snapshot_data, locked_at FROM public.business_snapshots 
         WHERE tenant_id = ${input.tenantId} AND status = 'LOCKED'
         ORDER BY locked_at DESC LIMIT 1
       `;
-      lockedSnapshot = snap ?? null;
-    } catch { /* Table may not exist yet — continue without snapshot */ }
+      if (snap) {
+        realityGrounding = `LOCKED_OPERATIONAL_TRUTH (Confirmed by owner at ${snap.locked_at}):\n${JSON.stringify(snap.snapshot_data)}`;
+      }
+    } catch { /* Non-fatal: snapshots may not exist yet */ }
 
-    const realityGrounding = lockedSnapshot 
-      ? `LOCKED_OPERATIONAL_TRUTH (Confirmed by owner at ${lockedSnapshot.locked_at}):\n${JSON.stringify(lockedSnapshot.snapshot_data)}`
-      : "No daily briefing locked for today. Rely on general business knowledge.";
-
-    // ACIL — Active Commitment Context is now provided by the Atomic Runner
-    // to ensure deterministic execution mode selection.
-
-    const lastNeed = governedMemories.find(m => m.key === 'last_customer_need')?.value || "";
-    const currentGoal = governedMemories.find(m => m.key === 'current_goal')?.value || "";
-
-    const conversationHeartbeat = lastNeed || currentGoal 
-      ? `## CONVERSATION_HEARTBEAT (STRICT CONTINUITY):
-- The user is RETURNING. This is NOT a new session.
-- Last Customer Need: "${lastNeed}"
-- Current Active Goal: "${currentGoal}"
-- INSTRUCTION: Do NOT greet the user. Skip "Hello" or "How can I help". 
-- ACTION: Respond DIRECTLY to the message within the context of the goal above.`
-      : "## CONVERSATION_HEARTBEAT: New session started.";
-
-    const strategicDirective = input.executionMode === "CONTINUATION_ONLY" || input.executionMode === "COMMITMENT_RESOLUTION"
-      ? `## STRATEGIC_EXECUTION_DIRECTIVE (CRITICAL):
-- MODE: ${input.executionMode}
-- REASON: You are in an active, unresolved interaction.
-- CONSTRAINT: Do NOT greet the user. Do NOT say "Hello", "Hi", or "How can I help". 
-- ACTION: Respond as if you just finished a sentence in the previous turn. Stay strictly on the current goal: "${currentGoal}".`
-      : `## STRATEGIC_EXECUTION_DIRECTIVE:
-- MODE: GREETING_ALLOWED
-- REASON: Fresh encounter or new intent.
-- ACTION: Greet the customer professionally and identify their need.`;
-
-    const businessBrief = [
-      strategicDirective,                                                      // ← Hard Directive First
-      conversationHeartbeat,                                                   // ← Anchor the brain second
-      activeCommitmentContext,                                                 // ← Obligations third
-      isRecovery ? "CRITICAL: You are recovering..." : "",
+    // ── PROMPT ASSEMBLY — layered, deterministic, mode-aware
+    const businessBrief = buildSystemBrief(
+      input.executionMode,
+      lastNeed,
+      currentGoal,
+      activeCommitmentContext,
       realityGrounding,
-      ...facts.map((f: { key: string; value: any }) => `${f.key}: ${JSON.stringify(f.value)}`)
-    ].filter(Boolean).join("\n\n");
+      facts,
+      isRecovery
+    );
 
+    // ── INFERENCE
     t("LLM_INVOCATION_START");
     const proposed = await generateStaffReply(input.messageText, businessBrief, profile, config);
-    
+    t("LLM_INVOCATION_COMPLETE");
+
+    // ── ACTION VALIDATION
     const validatedAction = validateStaffAction(
-      { 
+      {
         type: proposed.suggested_action.type,
         urgency: proposed.suggested_action.urgency,
         revenue_weight: proposed.suggested_action.revenue_weight,
         need_classification: proposed.suggested_action.need_classification
       },
-      { 
-        currentTime: new Date(), 
-        profile, 
-        customerState: state, 
-        llmConfidence: proposed.confidence 
+      {
+        currentTime: new Date(),
+        profile,
+        customerState: state,
+        llmConfidence: proposed.confidence
       }
     );
 
+    // ── OUTPUT VALIDATION — mode-aware behavioral enforcement
     const { sanitizedReply, actionOverride } = sanitizeStaffReply(proposed.response, facts);
-
     const behavioralAudit = enforceEmployeePsychology(sanitizedReply, input.executionMode);
-    
+
     let finalReply = behavioralAudit.correctedResponse;
     let finalConfidence = proposed.confidence;
 
     if (behavioralAudit.mode === "REWRITE") {
-      console.log(`[BEHAVIORAL_ENFORCER] REWRITE_MODE: Repairing response. Original violations: ${behavioralAudit.violations.length}`);
-      finalConfidence = Math.max(0.76, proposed.confidence - 0.1); // Ensure it stays above the 0.75 threshold
+      t(`BEHAVIORAL_REWRITE: ${behavioralAudit.violations.length} violations corrected`);
+      finalConfidence = Math.max(0.76, proposed.confidence - 0.1);
     } else if (behavioralAudit.mode === "BLOCK") {
-      console.warn(`[BEHAVIORAL_ENFORCER] BLOCK_MODE: Fatal violation detected. Using safe fallback.`);
-      finalReply = behavioralAudit.safeFallback;
-      finalConfidence = 0.9; // High confidence for the fallback message to ensure it's delivered
+      t("BEHAVIORAL_BLOCK: Fatal violation — using mode-safe fallback");
+      // Mode-aware fallback: don't reset to a greeting if we're mid-conversation
+      finalReply = (input.executionMode === "CONTINUATION_ONLY" || input.executionMode === "COMMITMENT_RESOLUTION")
+        ? "Let me look into that for you right now."
+        : behavioralAudit.safeFallback;
+      finalConfidence = 0.9;
     }
 
-    const finalAction: StaffAction = actionOverride ? {
-      type: "ESCALATE",
-      urgency: "HIGH",
-      revenue_weight: validatedAction.revenue_weight,
-      need_classification: "ESCALATION_REQUIRED"
-    } : {
-      ...validatedAction,
-      type: behavioralAudit.mode === "BLOCK" ? "REPLY" as const : validatedAction.type
-    };
+    const finalAction: StaffAction = actionOverride
+      ? { type: "ESCALATE", urgency: "HIGH", revenue_weight: validatedAction.revenue_weight, need_classification: "ESCALATION_REQUIRED" }
+      : { ...validatedAction, type: behavioralAudit.mode === "BLOCK" ? "REPLY" as const : validatedAction.type };
 
     const decision: StaffDecision = {
       intent_type: proposed.intent_type,
@@ -160,9 +205,16 @@ export async function runStaffLoop(
     };
 
   } catch (err) {
-    console.error(`[STAFF_LOOP] COGNITION_FAILURE: ${err}`);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[STAFF_LOOP] COGNITION_FAILURE: ${message}`);
+
+    // Mode-aware degraded response — never reset to greeting mid-session
+    const degradedText = (input.executionMode === "CONTINUATION_ONLY" || input.executionMode === "COMMITMENT_RESOLUTION")
+      ? "Still working on that for you — give me just a moment."
+      : "I'm having a bit of trouble. Let me check that for you.";
+
     return {
-      responseText: "I'm having a bit of trouble. Let me check that for you.",
+      responseText: degradedText,
       responseType: "error_degraded",
       delivered: false,
       latencyMs: Date.now() - start,

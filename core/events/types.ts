@@ -15,7 +15,7 @@ export interface BaseEvent {
 export interface MessageReceivedEvent extends BaseEvent {
   type: "MESSAGE_RECEIVED";
   payload: {
-    channel: "whatsapp" | "sms" | "web";
+    channel: "whatsapp" | "sms" | "web" | "simulation";
     from: string;
     text: string;
     waMessageId?: string;

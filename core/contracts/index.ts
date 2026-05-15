@@ -29,10 +29,11 @@ export interface StaffLoopInput {
   correlationId: string;
   causationId: string;
   eventId: string;
-  channel: "whatsapp" | "sms" | "web";
+  channel: "whatsapp" | "sms" | "web" | "simulation";
   traceContext?: {
     traceId: string;
     workerId: string;
+    executionId?: string;
   };
   snapshotId?: string; // Optional context from a specific snapshot
   instance?: ChiomaInstance;
