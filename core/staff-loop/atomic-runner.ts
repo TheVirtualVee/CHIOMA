@@ -306,6 +306,22 @@ export async function runAtomicStaffLoop(
       proposalEvent.contentHash = buildContentHash(proposalEvent.payload);
       await appendEvent(tx, proposalEvent);
       telemetry.record("DECISION_COMPILED", { decisionId: loopResult.decision.decision_hash });
+      
+      // 🧠 STATE PERSISTENCE: Update customer memory with latest intent/goal
+      // This is what prevents CHIOMA from resetting the session on every turn.
+      try {
+        await tx`
+          INSERT INTO public.customer_memory (tenant_id, customer_phone, last_customer_need, current_goal, updated_at)
+          VALUES (${input.tenantId}, ${input.senderPhone}, ${loopResult.decision.customer_need}, ${loopResult.decision.intent_type}, NOW())
+          ON CONFLICT (tenant_id, customer_phone) DO UPDATE
+          SET last_customer_need = EXCLUDED.last_customer_need,
+              current_goal = EXCLUDED.current_goal,
+              updated_at = EXCLUDED.updated_at
+        `;
+        telemetry.record("MEMORY_PERSISTED", { need: loopResult.decision.customer_need });
+      } catch (memErr: unknown) {
+        telemetry.record("MEMORY_PERSIST_FAILED", { reason: String(memErr).slice(0, 80) });
+      }
 
       // 3. VALIDATED Stage
       assertLegalTransition("PROPOSED", "VALIDATED");

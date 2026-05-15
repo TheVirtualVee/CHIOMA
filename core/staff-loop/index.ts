@@ -71,13 +71,25 @@ export async function runStaffLoop(
       console.error("[ACIL] UNEXPECTED_ACIL_ERROR:", String(err).slice(0, 120));
     }
 
+    const lastNeed = governedMemories.find(m => m.key === 'last_customer_need')?.value || "";
+    const currentGoal = governedMemories.find(m => m.key === 'current_goal')?.value || "";
+
+    const conversationHeartbeat = lastNeed || currentGoal 
+      ? `## CONVERSATION_HEARTBEAT (STRICT CONTINUITY):
+- The user is RETURNING. This is NOT a new session.
+- Last Customer Need: "${lastNeed}"
+- Current Active Goal: "${currentGoal}"
+- INSTRUCTION: Do NOT greet the user. Skip "Hello" or "How can I help". 
+- ACTION: Respond DIRECTLY to the message within the context of the goal above.`
+      : "## CONVERSATION_HEARTBEAT: New session started.";
+
     const businessBrief = [
-      activeCommitmentContext,                                                 // ← ACIL injection (first = highest priority)
-      `Business Knowledge: Last goal was ${governedMemories.find(m => m.key === 'current_goal')?.value || 'none'}`,
+      conversationHeartbeat,                                                   // ← Anchor the brain first
+      activeCommitmentContext,                                                 // ← Obligations second
       isRecovery ? "CRITICAL: You are recovering..." : "",
       realityGrounding,
       ...facts.map((f: { key: string; value: any }) => `${f.key}: ${JSON.stringify(f.value)}`)
-    ].filter(Boolean).join("\n");
+    ].filter(Boolean).join("\n\n");
 
     t("LLM_INVOCATION_START");
     const proposed = await generateStaffReply(input.messageText, businessBrief, profile, config);
