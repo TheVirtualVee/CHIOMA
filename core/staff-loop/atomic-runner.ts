@@ -28,8 +28,15 @@ export async function runAtomicStaffLoop(
   telemetry.record("ATOMIC_RUNNER_ENTRY", { messageId: input.messageId });
   
   const start = Date.now();
-  const aggregateId = `conv_${input.senderPhone}`;
   const correlationId = input.correlationId || `corr_${input.messageId}`;
+
+  // ── TOP-LEVEL FAULT BOUNDARY ──────────────────────────────────
+  // GUARANTEE: CHIOMA always responds, even during infrastructure failure.
+  // Pre-lease operations (identity, arbiter, DB) can all throw.
+  // Without this boundary, a DB timeout = silent customer abandonment.
+  try {
+
+  const aggregateId = `conv_${input.senderPhone}`;
   
   // ASSERT: traceContext optional — prevent crash before acquireLease when absent
   const workerId = input.traceContext?.workerId ?? ("worker_" + (input.messageId || "unknown").slice(0, 8));
@@ -276,6 +283,9 @@ export async function runAtomicStaffLoop(
       }
 
       telemetry.record("CONSTITUTION_VALIDATED");
+      // NOTE: Full mode-aware behavioral enforcement already happened inside runStaffLoop.
+      // This second pass exists only for performance scoring. It runs in GREETING_ALLOWED
+      // mode intentionally — it's measuring the LLM's raw output quality, not enforcing policy.
       const audit = enforceEmployeePsychology(loopResult.decision.response_payload);
       telemetry.record("BEHAVIORAL_ENFORCER_PASSED", { violations: audit.violations.length });
       
@@ -506,5 +516,22 @@ export async function runAtomicStaffLoop(
 
     telemetry.record("FINALIZATION_DONE", { resultType: "error_degraded", error: err.message });
     return fallbackResponse;
+  }
+
+  // ── END TOP-LEVEL FAULT BOUNDARY ──────────────────────────────
+  } catch (outerErr: any) {
+    // This catches failures in pre-lease operations: identity resolution,
+    // arbiter gating, lease acquisition, or any other code path that runs
+    // before the inner try/catch. Without this, the customer gets silence.
+    const msg = outerErr instanceof Error ? outerErr.message : String(outerErr);
+    telemetry.record("OUTER_FAULT_BOUNDARY", { error: msg.slice(0, 200) });
+    console.error(`[ATOMIC_RUNNER] OUTER_FAULT_BOUNDARY: ${msg}`);
+    return {
+      responseText: "I'm having a bit of trouble right now, but I've noted your message. I'll follow up shortly.",
+      responseType: "error_degraded" as const,
+      delivered: false,
+      latencyMs: Date.now() - start,
+      correlationId,
+    };
   }
 }

@@ -163,7 +163,7 @@ export async function runStaffLoop(
 
     // ── OUTPUT VALIDATION — mode-aware behavioral enforcement
     const { sanitizedReply, actionOverride } = sanitizeStaffReply(proposed.response, facts);
-    const behavioralAudit = enforceEmployeePsychology(sanitizedReply, input.executionMode);
+    const behavioralAudit = enforceEmployeePsychology(sanitizedReply, input.executionMode, currentGoal);
 
     let finalReply = behavioralAudit.correctedResponse;
     let finalConfidence = proposed.confidence;

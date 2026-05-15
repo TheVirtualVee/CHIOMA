@@ -71,12 +71,58 @@ const GREETING_PATTERNS = [
   /thank you for reaching out[!, ]*/i,
 ];
 
+// AMNESIA_PATTERNS: Words chosen carefully to avoid matching legitimate business language.
+// e.g. 'new session' is excluded — a business may say 'booking a new session for a client'.
+const AMNESIA_PATTERNS = [
+  /i am a new assistant/i,
+  /how can i help you from scratch/i,
+  /i don't have our previous conversation/i,
+  /i've lost our context/i,
+  /\bstarting fresh with you\b/i,
+  /this is the start of our conversation/i,
+];
+
 export function enforceEmployeePsychology(
   response: string,
-  executionMode: string = "GREETING_ALLOWED"
+  executionMode: string = "GREETING_ALLOWED",
+  currentGoal: string = ""
 ): BehavioralAuditResult {
   const violations: BehavioralViolation[] = [];
   let corrected = response.trim();
+
+  // ── AMNESIA DETECTION (CRITICAL) ───────────────────────────────
+  if (executionMode !== "GREETING_ALLOWED") {
+    for (const pattern of AMNESIA_PATTERNS) {
+      if (pattern.test(corrected)) {
+        violations.push({
+          rule: "CONVERSATIONAL_AMNESIA",
+          severity: "BLOCK",
+          detail: `Amnesia phrase detected in ${executionMode} mode: ${corrected.match(pattern)?.[0]}`,
+        });
+      }
+    }
+  }
+
+  // ── COMMITMENT COMPLIANCE (CESM) ───────────────────────────────
+  // SEVERITY: WARNING — intentionally NOT a BLOCK.
+  // Reason: If this were BLOCK, the fallback text also wouldn't mention the goal,
+  // creating an infinite cascade where CHIOMA is permanently silenced mid-session.
+  // WARNING ensures the violation is observable and loggable without killing delivery.
+  if (executionMode === "COMMITMENT_RESOLUTION" && currentGoal) {
+    const goalTerms = currentGoal.toLowerCase().split(/\s+/).filter(t => t.length > 3);
+    // Only enforce if there are meaningful terms to match against.
+    // An empty goalTerms array (e.g. goal = 'ok') must never trigger a false violation.
+    if (goalTerms.length > 0) {
+      const mentionsGoal = goalTerms.some(term => corrected.toLowerCase().includes(term));
+      if (!mentionsGoal && corrected.length > 0) {
+        violations.push({
+          rule: "COMMITMENT_DRIFT",
+          severity: "WARNING",
+          detail: `Response may not address active commitment: "${currentGoal}"`,
+        });
+      }
+    }
+  }
 
   // ── GREETING SUPPRESSION (CESM) ─────────────────────────────────
   if (executionMode === "CONTINUATION_ONLY" || executionMode === "COMMITMENT_RESOLUTION") {
