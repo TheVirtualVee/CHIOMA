@@ -514,6 +514,20 @@ export async function runAtomicStaffLoop(
       correlationId: correlationId,
     };
 
+    // 🧠 RECOVERY LEDGER: Record for automatic re-execution
+    try {
+      await sql`
+        INSERT INTO public.execution_failures (
+          tenant_id, message_id, customer_phone, input_text, correlation_id, channel
+        ) VALUES (
+          ${input.tenantId}, ${input.messageId}, ${input.senderPhone}, ${input.messageText}, ${correlationId}, ${input.channel}
+        )
+      `;
+      telemetry.record("FAILURE_LEDGERED", { messageId: input.messageId });
+    } catch (ledgerErr) {
+      telemetry.record("FAILURE_LEDGER_FAILED", { error: String(ledgerErr).slice(0, 80) });
+    }
+
     telemetry.record("FINALIZATION_DONE", { resultType: "error_degraded", error: err.message });
     return fallbackResponse;
   }
@@ -526,6 +540,18 @@ export async function runAtomicStaffLoop(
     const msg = outerErr instanceof Error ? outerErr.message : String(outerErr);
     telemetry.record("OUTER_FAULT_BOUNDARY", { error: msg.slice(0, 200) });
     console.error(`[ATOMIC_RUNNER] OUTER_FAULT_BOUNDARY: ${msg}`);
+
+    // 🧠 RECOVERY LEDGER: Even pre-lease failures must be ledgered
+    try {
+      await sql`
+        INSERT INTO public.execution_failures (
+          tenant_id, message_id, customer_phone, input_text, correlation_id, channel
+        ) VALUES (
+          ${input.tenantId}, ${input.messageId}, ${input.senderPhone}, ${input.messageText}, ${correlationId}, ${input.channel}
+        )
+      `;
+    } catch { /* Silent fail on ledgering if DB is fatally down */ }
+
     return {
       responseText: "I'm still pulling that together for you — one moment.",
       responseType: "error_degraded" as const,

@@ -8,12 +8,17 @@ import { ExecutionKernel } from "../kernel/execution-kernel.js";
  * CHIOMA Commitment Recovery Worker
  * Phase 4 — Consolidated via Execution Kernel
  */
-export async function processOverdueCommitments(sql: any, config: { apiKey: string; provider: string }) {
-  const workerId = `recovery_worker_${process.env.VERCEL_REGION || "local"}_${Math.random().toString(36).slice(2, 7)}`;
-  const trace = createTraceContext(workerId);
-  const telemetry = new TelemetryManager("SYSTEM_WORKER", trace.traceId);
 
-  telemetry.record("RECOVERY_SCAN_STARTED");
+function createRecoveryWorkerId(): string {
+  return `recovery_worker_${process.env.VERCEL_REGION || "local"}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+export async function processOverdueCommitments(sql: any, config: { apiKey: string; provider: string }) {
+  const workerId = createRecoveryWorkerId();
+  const trace = createTraceContext(workerId);
+  const telemetry = new TelemetryManager("SYSTEM_WORKER_COMMITMENT", trace.traceId);
+
+  telemetry.record("RECOVERY_SCAN_STARTED", { type: "COMMITMENT" });
 
   try {
     // 1. ATOMIC LEASE ACQUISITION (Still handled here to ensure worker isolation)
@@ -115,6 +120,102 @@ export async function processOverdueCommitments(sql: any, config: { apiKey: stri
   } catch (outerErr: unknown) {
     const outerMsg = outerErr instanceof Error ? outerErr.message : String(outerErr);
     telemetry.record("RECOVERY_SCAN_CRASHED", { error: outerMsg });
+    throw new Error(outerMsg);
+  }
+}
+
+/**
+ * CHIOMA Inference Recovery Worker (The 'Recovery Ledger' Processor)
+ * Purpose: Re-runs message turns that resulted in 'error_degraded' fallbacks.
+ */
+export async function processInferenceFailures(sql: any, config: { apiKey: string; provider: string }) {
+  const workerId = createRecoveryWorkerId();
+  const trace = createTraceContext(workerId);
+  const telemetry = new TelemetryManager("SYSTEM_WORKER_INFERENCE", trace.traceId);
+
+  telemetry.record("RECOVERY_SCAN_STARTED", { type: "INFERENCE_FAILURE" });
+
+  try {
+    // 1. ATOMIC LEASE ACQUISITION for failed turns
+    // Look for message_ledger entries that are FAILED or have recent error_degraded results.
+    // In this phase, we look for 'execution_failures' which is the dedicated Recovery Ledger.
+    const failedTurns = await sql`
+      UPDATE public.execution_failures
+      SET 
+        status = 'RECOVERING',
+        worker_id = ${workerId},
+        last_attempt_at = NOW(),
+        retry_count = retry_count + 1
+      WHERE id IN (
+        SELECT id FROM public.execution_failures
+        WHERE status = 'PENDING'
+          AND (last_attempt_at IS NULL OR last_attempt_at < NOW() - INTERVAL '2 minutes')
+          AND retry_count < 5
+        ORDER BY created_at ASC
+        LIMIT 5
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING *
+    `;
+
+    if (failedTurns.length === 0) return { processed: 0 };
+
+    for (const turn of failedTurns) {
+      try {
+        const instance = await resolveInstanceByTenant(sql, turn.tenant_id);
+        if (!instance) throw new Error(`RECOVERY_FAILURE: Instance not found`);
+
+        const recoveryInput = {
+          messageId: turn.message_id,
+          tenantId: turn.tenant_id,
+          instanceId: instance.instance_id,
+          senderPhone: turn.customer_phone,
+          messageText: turn.input_text,
+          correlationId: turn.correlation_id,
+          causationId: turn.message_id,
+          eventId: `evt_recov_inf_${randomUUID()}`,
+          channel: turn.channel as any || "whatsapp",
+          traceContext: { ...trace, workerId },
+          instance,
+        };
+
+        // 🧠 KERNEL EXECUTION (The single decision spine)
+        const result = await ExecutionKernel.execute(recoveryInput, sql, {
+          apiKey: config.apiKey,
+          provider: instance.llm_config.provider,
+          model: instance.llm_config.model,
+        }, telemetry);
+
+        // Update recovery ledger based on kernel result
+        if (result.responseType === 'error_degraded') {
+          await sql`
+            UPDATE public.execution_failures
+            SET status = 'PENDING', last_error = 'Kernel returned degraded fallback'
+            WHERE id = ${turn.id}
+          `;
+        } else {
+          await sql`
+            UPDATE public.execution_failures
+            SET status = 'RECOVERED', recovered_at = NOW()
+            WHERE id = ${turn.id}
+          `;
+        }
+
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        await sql`
+          UPDATE public.execution_failures
+          SET status = 'PENDING', last_error = ${errMsg}
+          WHERE id = ${turn.id}
+        `;
+      }
+    }
+
+    return { processed: failedTurns.length };
+
+  } catch (outerErr: unknown) {
+    const outerMsg = outerErr instanceof Error ? outerErr.message : String(outerErr);
+    telemetry.record("RECOVERY_SCAN_CRASHED", { type: "INFERENCE_FAILURE", error: outerMsg });
     throw new Error(outerMsg);
   }
 }
