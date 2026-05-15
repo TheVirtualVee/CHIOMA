@@ -20,6 +20,8 @@ export async function resolveInstance(
     WHERE whatsapp_phone_number_id = ${phoneNumberId}
   `;
 
+  if (!row) return null;
+
   return mapRowToInstance(row);
 }
 
@@ -67,4 +69,3 @@ function mapRowToInstance(row: any): ChiomaInstance {
     memory_namespace: row.memory_namespace,
   };
 }
-
