@@ -73,19 +73,19 @@ const GREETING_PATTERNS = [
 
 export function enforceEmployeePsychology(
   response: string,
-  mode: string = "GREETING_ALLOWED"
+  executionMode: string = "GREETING_ALLOWED"
 ): BehavioralAuditResult {
   const violations: BehavioralViolation[] = [];
   let corrected = response.trim();
 
   // ── GREETING SUPPRESSION (CESM) ─────────────────────────────────
-  if (mode === "CONTINUATION_ONLY" || mode === "COMMITMENT_RESOLUTION") {
+  if (executionMode === "CONTINUATION_ONLY" || executionMode === "COMMITMENT_RESOLUTION") {
     for (const pattern of GREETING_PATTERNS) {
       if (pattern.test(corrected)) {
         violations.push({
           rule: "REDUNDANT_GREETING",
           severity: "CORRECT",
-          detail: `Greeting detected in ${mode} mode. Stripping for continuity.`,
+          detail: `Greeting detected in ${executionMode} mode. Stripping for continuity.`,
         });
         corrected = corrected.replace(pattern, "").trim();
         // Capitalize first letter of remaining text
