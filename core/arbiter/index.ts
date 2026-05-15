@@ -1,4 +1,5 @@
-import { ExecutionRequest, ArbiterVerdict } from "../contracts/index.js";
+import { z } from "zod";
+import { ExecutionRequest, ArbiterVerdict, GateTraceEntry } from "../contracts/index.js";
 
 /**
  * CHIOMA EXECUTION ARBITER (CEA)
@@ -8,49 +9,84 @@ import { ExecutionRequest, ArbiterVerdict } from "../contracts/index.js";
 /**
  * Step 1 — Pure Gate Engine (Deterministic Logic)
  */
-export function evaluateGates(request: ExecutionRequest): { outcome: ArbiterVerdict['outcome']; controllerTriggered: string; reason: string } {
+export function evaluateGates(request: ExecutionRequest): { 
+  outcome: ArbiterVerdict['outcome']; 
+  controllerTriggered: string; 
+  reason: string;
+  gateTrace: GateTraceEntry[];
+} {
+  const gateTrace: GateTraceEntry[] = [];
+
   // Gate 1: Billing Hard Block
-  // creditBalance < creditRequired AND tenantStatus != 'active' (active is the non-trial check here)
-  if (request.creditBalance < request.creditRequired && request.tenantStatus !== 'active') {
-     return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate1_Billing', reason: 'INSUFFICIENT_CREDITS' };
+  const billingPassed = !(request.creditBalance < request.creditRequired && request.tenantStatus !== 'active');
+  gateTrace.push({ gate: 'billing', decision: billingPassed ? 'passed' : 'blocked', reason: billingPassed ? undefined : 'INSUFFICIENT_CREDITS' });
+  if (!billingPassed) {
+     return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate1_Billing', reason: 'INSUFFICIENT_CREDITS', gateTrace };
   }
 
   // Gate 2: Tenant Validity
-  if (['suspended', 'trial_expired'].includes(request.tenantStatus)) {
-    return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate2_TenantValidity', reason: `TENANT_STATUS_${request.tenantStatus.toUpperCase()}` };
+  const tenantValid = !['suspended', 'trial_expired'].includes(request.tenantStatus);
+  gateTrace.push({ gate: 'tenant', decision: tenantValid ? 'passed' : 'blocked', reason: tenantValid ? undefined : `TENANT_STATUS_${request.tenantStatus.toUpperCase()}` });
+  if (!tenantValid) {
+    return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate2_TenantValidity', reason: `TENANT_STATUS_${request.tenantStatus.toUpperCase()}`, gateTrace };
   }
 
   // Gate 3: Safety Gate
-  if (request.safetyFlags.length > 0) {
-    return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate3_Safety', reason: `SAFETY_VIOLATION: ${request.safetyFlags.join(', ')}` };
+  const safetyPassed = request.safetyFlags.length === 0;
+  gateTrace.push({ gate: 'safety', decision: safetyPassed ? 'passed' : 'blocked', reason: safetyPassed ? undefined : `SAFETY_VIOLATION: ${request.safetyFlags.join(', ')}` });
+  if (!safetyPassed) {
+    return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate3_Safety', reason: `SAFETY_VIOLATION: ${request.safetyFlags.join(', ')}`, gateTrace };
   }
 
+  // Gate 4: Commitment Throttling (Phase 3.2 Hardening)
+  // Max 1 active commitment per 10-minute window (enforced by checking current active count)
+  if (request.commitmentPending && request.activeCommitmentCount >= 1) {
+    gateTrace.push({ gate: 'commitment_throttling', decision: 'triggered', reason: 'MAX_ACTIVE_COMMITMENTS_EXCEEDED' });
+    // If throttled, we treat it as a normal ALLOW without priority override to prevent worker DoS
+    return { outcome: 'ALLOW', controllerTriggered: 'Gate4_Throttling', reason: 'COMMITMENT_THROTTLED', gateTrace };
+  }
 
-  // Gate 4: Commitment Override
+  // Gate 5: Commitment Override
   if (request.commitmentPending) {
-    return { outcome: 'ALLOW_WITH_CONTEXT_OVERRIDE', controllerTriggered: 'Gate4_Commitment', reason: 'PENDING_COMMITMENT_PRIORITY' };
+    gateTrace.push({ gate: 'commitment', decision: 'triggered', reason: 'PENDING_COMMITMENT_PRIORITY' });
+    return { outcome: 'ALLOW_WITH_CONTEXT_OVERRIDE', controllerTriggered: 'Gate5_Commitment', reason: 'PENDING_COMMITMENT_PRIORITY', gateTrace };
   }
 
-  // Gate 5: Business Logic Routing
+  // Gate 6: Business Logic Routing
   if (['abm_schedule', 'daily_brief'].includes(request.triggeredBy)) {
-    return { outcome: 'ALLOW', controllerTriggered: 'Gate5_BusinessLogic', reason: `ROUTED_BY_${request.triggeredBy.toUpperCase()}` };
+    gateTrace.push({ gate: 'business_routing', decision: 'passed', reason: `ROUTED_BY_${request.triggeredBy.toUpperCase()}` });
+    return { outcome: 'ALLOW', controllerTriggered: 'Gate6_BusinessLogic', reason: `ROUTED_BY_${request.triggeredBy.toUpperCase()}`, gateTrace };
   }
 
-  // Gate 6: Default
-  return { outcome: 'ALLOW', controllerTriggered: 'Gate6_Default', reason: 'ALL_GATES_PASSED' };
+  // Gate 7: Default
+  gateTrace.push({ gate: 'default', decision: 'passed', reason: 'ALL_GATES_PASSED' });
+  return { outcome: 'ALLOW', controllerTriggered: 'Gate7_Default', reason: 'ALL_GATES_PASSED', gateTrace };
 }
+
 
 /**
  * Step 2 — Enrichment Layer (Gemini Flash)
  */
-async function enrichVerdict(request: ExecutionRequest, gateResult: { outcome: ArbiterVerdict['outcome']; controllerTriggered: string; reason: string }, apiKey: string): Promise<ArbiterVerdict> {
+const EnrichmentSchema = z.object({
+  contextOverride: z.string().max(300).optional(),
+  recoveryPayload: z.record(z.any()).optional(),
+});
+
+async function enrichVerdict(
+  request: ExecutionRequest, 
+  gateResult: { outcome: ArbiterVerdict['outcome']; controllerTriggered: string; reason: string; gateTrace: GateTraceEntry[] }, 
+  apiKey: string
+): Promise<ArbiterVerdict> {
   const needsEnrichment = ['ALLOW_WITH_CONTEXT_OVERRIDE', 'QUEUE_FOR_RECOVERY'].includes(gateResult.outcome);
   
+  const baseVerdict: ArbiterVerdict = {
+    ...gateResult,
+    resolvedAt: Date.now(),
+    fingerprint: request.fingerprint
+  };
+
   if (!needsEnrichment) {
-    return {
-      ...gateResult,
-      resolvedAt: Date.now()
-    };
+    return baseVerdict;
   }
 
   try {
@@ -71,7 +107,6 @@ Instruction:
 Return enriched ArbiterVerdict. Do not modify outcome.
 Include contextOverride (Max 1-3 sentences, business-safe only) or recoveryPayload if applicable.`;
 
-    // Using Gemini Flash via OpenRouter or direct (configuring for common CHIOMA pattern)
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -79,7 +114,7 @@ Include contextOverride (Max 1-3 sentences, business-safe only) or recoveryPaylo
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile", // Using current reliable model, ensuring Flash-like speed/cost
+        model: "llama-3.3-70b-versatile",
         messages: [{ role: "system", content: prompt }],
         temperature: 0,
         response_format: { type: "json_object" }
@@ -89,25 +124,39 @@ Include contextOverride (Max 1-3 sentences, business-safe only) or recoveryPaylo
     if (!response.ok) throw new Error(`Enrichment API failed: ${response.status}`);
 
     const data = await response.json() as any;
-    const enriched = JSON.parse(data.choices[0].message.content) as ArbiterVerdict;
+    const rawEnriched = JSON.parse(data.choices[0].message.content);
 
-    // Hard constraint: Immutability of outcome
+    // Strict schema enforcement
+    const validated = EnrichmentSchema.safeParse(rawEnriched);
+    if (!validated.success) {
+      console.warn("[ARBITER] ENRICHMENT_SCHEMA_VIOLATION", validated.error.issues);
+      return {
+        ...baseVerdict,
+        outcome: 'DEGRADE_RESPONSE',
+        controllerTriggered: 'gemini_schema_fallback',
+        reason: 'ENRICHMENT_SCHEMA_INVALID'
+      };
+    }
+
+    // Hard constraint: Immutability of outcome and fingerprint
     return {
-      ...enriched,
-      outcome: gateResult.outcome, // ENFORCE IMMUTABILITY
+      ...baseVerdict,
+      contextOverride: validated.data.contextOverride,
+      recoveryPayload: validated.data.recoveryPayload,
       resolvedAt: Date.now()
     };
 
   } catch (err) {
     console.error("[ARBITER] ENRICHMENT_FAILED", err);
     return {
+      ...baseVerdict,
       outcome: 'DEGRADE_RESPONSE',
       controllerTriggered: 'gemini_failure_fallback',
-      reason: 'ENRICHMENT_TIMEOUT_OR_ERROR',
-      resolvedAt: Date.now()
+      reason: 'ENRICHMENT_TIMEOUT_OR_ERROR'
     };
   }
 }
+
 
 /**
  * Step 3 — Arbiter Orchestrator

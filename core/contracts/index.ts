@@ -136,6 +136,14 @@ export type ExecutionRequest = {
   tenantStatus: 'active' | 'suspended' | 'trial_expired';
   safetyFlags: string[];
   requestedAt: number;
+  fingerprint: string; // hash(tenantId + instanceId + messageId + normalizedBody)
+  activeCommitmentCount: number;
+};
+
+export type GateTraceEntry = {
+  gate: string;
+  decision: 'passed' | 'triggered' | 'blocked';
+  reason?: string;
 };
 
 export type ArbiterVerdict = {
@@ -147,8 +155,11 @@ export type ArbiterVerdict = {
     | 'QUEUE_FOR_RECOVERY';
   reason: string;
   controllerTriggered: string;
+  gateTrace: GateTraceEntry[];
   contextOverride?: string; // MAX 1–3 sentences, business-safe only
   recoveryPayload?: object;
   resolvedAt: number;
+  fingerprint: string;
 };
+
 

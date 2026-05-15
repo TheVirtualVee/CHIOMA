@@ -140,28 +140,40 @@ export async function runAtomicStaffLoop(
       // ── EXECUTION ARBITER (CEA) GATE ───────────────────────────────
       telemetry.record("ARBITER_GATING_STARTED");
       
-      const [commitment] = await tx`
-        SELECT id FROM public.commitments 
+      const normalizedBody = input.messageText.trim().toLowerCase();
+      const fingerprint = createHash("sha256")
+        .update(input.tenantId + input.instanceId + input.messageId + normalizedBody)
+        .digest("hex");
+
+      const [commitmentData] = await tx`
+        SELECT count(*)::int as active_count, 
+               EXISTS(SELECT 1 FROM public.commitments WHERE tenant_id = ${input.tenantId} AND aggregate_id = ${aggregateId} AND status = 'PENDING') as has_pending
+        FROM public.commitments 
         WHERE tenant_id = ${input.tenantId} 
           AND aggregate_id = ${aggregateId} 
-          AND status = 'PENDING' 
-        LIMIT 1
+          AND status = 'PENDING'
       `;
 
       const arbiterRequest: ExecutionRequest = {
         tenantId: input.tenantId,
         instanceId: input.instanceId,
         triggeredBy: input.messageText.startsWith("/") ? "daily_brief" : "whatsapp_message",
-        commitmentPending: !!commitment,
+        commitmentPending: commitmentData?.has_pending ?? false,
+        activeCommitmentCount: commitmentData?.active_count ?? 0,
         creditBalance: input.instance?.credit_units ?? 0,
         creditRequired: 1,
         tenantStatus: (input.instance?.billing_state.toLowerCase() as any) || "active",
         safetyFlags: [], // TODO: Integrate safety classifier
-        requestedAt: Date.now()
+        requestedAt: Date.now(),
+        fingerprint
       };
 
       const verdict = await runArbiter(arbiterRequest, config.apiKey);
-      telemetry.record("ARBITER_GATING_FINISHED", { outcome: verdict.outcome });
+      telemetry.record("ARBITER_GATING_FINISHED", { 
+        outcome: verdict.outcome, 
+        fingerprint: verdict.fingerprint,
+        trace: verdict.gateTrace 
+      });
 
       if (verdict.outcome === 'BLOCK_RESPONSE') {
         await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
