@@ -9,6 +9,7 @@ import { enforceEmployeePsychology } from "../staff-rules/behavioral-enforcer.js
 import { processOnboardingStep } from "../../services/onboarding-service/index.js";
 import { processDailyBriefStep } from "../../services/daily-briefing-service/index.js";
 import { StaffLoopInput, StaffLoopResult, EmployabilityProfile } from "../contracts/index.js";
+import { TelemetryManager } from "../telemetry/index.js";
 import { acquireLease, releaseLease } from "../concurrency/index.js";
 import { RealityGovernor } from "../reality/governor.js";
 import { deductCredit } from "../billing/gate.js";
