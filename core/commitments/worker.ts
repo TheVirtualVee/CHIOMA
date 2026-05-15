@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { runAtomicStaffLoop } from "../staff-loop/atomic-runner.js";
 import { TelemetryManager, createTraceContext } from "../telemetry/index.js";
 import { Commitment, StaffLoopInput } from "../contracts/index.js";
+import { resolveInstanceByTenant } from "../routing/instance-router.js";
 
 /**
  * CHIOMA Commitment Recovery Worker
@@ -54,6 +55,13 @@ export async function processOverdueCommitments(sql: any, config: { apiKey: stri
 
         try {
           // 2. RE-ENTRY INTO CANONICAL COGNITION
+          const instance = await resolveInstanceByTenant(sql, tenantId);
+          if (!instance) {
+            throw new Error(`RECOVERY_FAILURE: Instance not found for tenant ${tenantId}`);
+          }
+          telemetry.setTenant(tenantId);
+          telemetry.setInstance(instance.instance_id);
+
           const messageId = `recovery_${commitmentId}_${Date.now()}`;
           
           // Prime the ledger to maintain the canonical execution chain
@@ -65,6 +73,7 @@ export async function processOverdueCommitments(sql: any, config: { apiKey: stri
           const recoveryInput: StaffLoopInput = {
             messageId: messageId,
             tenantId: tenantId,
+            instanceId: instance.instance_id,
             senderPhone: aggregateId.replace("conv_", ""),
             messageText: `[SYSTEM_RECOVERY_TRIGGER] You promised a ${commitment.type} follow-up for this customer. The deadline has passed. Resolve this now.`,
             correlationId: correlationId,
@@ -73,9 +82,14 @@ export async function processOverdueCommitments(sql: any, config: { apiKey: stri
             channel: "simulation",
             traceContext: { ...trace, workerId },
             snapshotId: commitment.snapshot_id, // Honoring historical truth
+            instance,
           };
 
-          const result = await runAtomicStaffLoop(recoveryInput, sql, config, telemetry);
+          const result = await runAtomicStaffLoop(recoveryInput, sql, {
+            apiKey: config.apiKey,
+            provider: instance.llm_config.provider,
+            model: instance.llm_config.model,
+          }, telemetry);
 
         // 3. FINALIZE COMMITMENT
         const resolutionLatencyMs = Date.now() - new Date(commitment.created_at).getTime();

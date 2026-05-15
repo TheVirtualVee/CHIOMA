@@ -7,15 +7,16 @@ import { assertLegalTransition, validateInvariants } from "../kernel/index.js";
 import { evaluateEmployeePerformance } from "../staff-rules/performance-scorer.js";
 import { enforceEmployeePsychology } from "../staff-rules/behavioral-enforcer.js";
 import { processOnboardingStep } from "../../services/onboarding-service/index.js";
+import { processDailyBriefStep } from "../../services/daily-briefing-service/index.js";
 import { StaffLoopInput, StaffLoopResult, EmployabilityProfile } from "../contracts/index.js";
-import { TelemetryManager } from "../telemetry/index.js";
 import { acquireLease, releaseLease } from "../concurrency/index.js";
 import { RealityGovernor } from "../reality/governor.js";
+import { deductCredit } from "../billing/gate.js";
 
 export async function runAtomicStaffLoop(
   input: StaffLoopInput,
   sql: any,
-  config: { apiKey: string; provider: string },
+  config: { apiKey: string; provider: string; model: string },
   telemetry: TelemetryManager
 ): Promise<StaffLoopResult> {
   // 🧠 CRITICAL: Immediate entry log for observability
@@ -102,6 +103,41 @@ export async function runAtomicStaffLoop(
         snapshotId = undefined;
         activeSnapshotData = null;
       }
+
+      // ── DAILY BRIEFING COMMAND ──────────────────────────────────────
+      if (input.messageText.toLowerCase().trim() === "/daily brief") {
+        telemetry.record("DAILY_BRIEF_TRIGGERED");
+        await tx`
+          INSERT INTO public.daily_brief_sessions (tenant_id, status)
+          VALUES (${input.tenantId}, 'AWAITING_INPUT')
+        `;
+        await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
+        return {
+          responseText: "Ready for today's update.",
+          responseType: "conversation",
+          delivered: false,
+          latencyMs: Date.now() - start,
+          correlationId,
+        };
+      }
+
+      // ── DAILY BRIEFING SESSION HANDLING ────────────────────────────
+      const brief = await processDailyBriefStep(tx, input.tenantId, input.messageText, { apiKey: config.apiKey });
+      if (brief.handled) {
+        await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
+        return {
+          responseText: brief.response || "",
+          responseType: "conversation",
+          delivered: false,
+          latencyMs: Date.now() - start,
+          correlationId,
+        };
+      }
+
+      // ── BILLING DEDUCTION ──────────────────────────────────────────
+      // Deduct credit BEFORE LLM call to prevent free usage on crash
+      telemetry.record("BILLING_DEDUCTION_STARTED");
+      await deductCredit(tx, input.instanceId, input.tenantId, correlationId, 1);
       
       const loopResult = await runStaffLoop(input, tx, config, profile);
       telemetry.record("INFERENCE_COMPLETED", { latencyMs: loopResult.latencyMs });

@@ -1,16 +1,33 @@
 import { TraceContext } from "./telemetry.js";
 
+export type ChiomaInstance = {
+  instance_id: string;
+  tenant_id: string;
+  whatsapp_phone_number: string;
+  whatsapp_phone_number_id: string;
+  billing_state: "ACTIVE" | "PAUSED" | "EXPIRED";
+  credit_units: number;
+  business_model_version: string;
+  llm_config: {
+    provider: "openai" | "groq" | "anthropic" | "openrouter";
+    model: string;
+  };
+  memory_namespace: string;
+};
+
 export interface StaffLoopInput {
   messageId: string;
   tenantId: string;
+  instanceId: string;
   senderPhone: string;
   messageText: string;
   correlationId: string;
   causationId: string;
   eventId: string;
   channel: "whatsapp" | "simulation";
-  traceContext?: TraceContext; // Optional — fallback created if absent
-  snapshotId?: string; // Temporal grounding key
+  traceContext?: TraceContext;
+  snapshotId?: string;
+  instance?: ChiomaInstance;
 }
 
 export interface StaffLoopResult {

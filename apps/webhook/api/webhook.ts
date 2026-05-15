@@ -4,6 +4,8 @@ import { createDatabaseClient } from "../../../infrastructure/database/index.js"
 import { runAtomicStaffLoop } from "../../../core/staff-loop/atomic-runner.js";
 import { sendWhatsAppMessage } from "../../../infrastructure/whatsapp/index.js";
 import { TelemetryManager, createTraceContext } from "../../../core/telemetry/index.js";
+import { resolveInstance } from "../../../core/routing/instance-router.js";
+import { billingGate } from "../../../core/billing/gate.js";
 
 /**
  * api/webhook.ts — WhatsApp Cloud API inbound handler.
@@ -71,17 +73,42 @@ export default async function handler(req: any, res: any) {
     const message = messages[0];
     const from = message.from as string;
     const text = (message.text?.body as string) || "";
-    const tenantId = `tenant_${value.metadata?.phone_number_id || "default"}`;
+    const phoneNumberId = value.metadata?.phone_number_id as string;
     const correlationId = `corr_${messageId}`;
 
-    // 5. Database & Atomic Runner Execution
+    // 5. Database & Instance Resolution
     const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
     try {
+      telemetry.record("INSTANCE_RESOLUTION_STARTED", { phoneNumberId });
+      const instance = await resolveInstance(sql, phoneNumberId);
+
+      if (!instance) {
+        telemetry.record("INSTANCE_NOT_FOUND", { phoneNumberId });
+        telemetry.complete("FAILED");
+        return res.status(200).json({ ok: false, error: "Instance not registered" });
+      }
+
+      const tenantId = instance.tenant_id;
+      const instanceId = instance.instance_id;
+      telemetry.setTenant(tenantId);
+      telemetry.setInstance(instanceId);
+
+      // 6. Billing Gate
+      const billing = billingGate(instance);
+      if (!billing.allowed) {
+        telemetry.record("BILLING_REJECTED", { reason: billing.response });
+        if (billing.response) {
+          await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, billing.response, trace);
+        }
+        telemetry.complete("COMPLETED");
+        return res.status(200).json({ ok: true, billing_rejected: true });
+      }
+      telemetry.record("BILLING_APPROVED");
+
       // 🧠 LIFECYCLE EXECUTION (Synchronous & Awaited)
-      // We no longer use detached promises or race conditions that cause Vercel halts.
-      
       const executionPromise = (async () => {
+
         // ── Idempotency Check ─────────────────────────────────────────────
         telemetry.record("LEDGER_CHECK_STARTED");
         const [existing] = await sql`
@@ -116,6 +143,7 @@ export default async function handler(req: any, res: any) {
         const staffLoopInput = {
           messageId,
           tenantId,
+          instanceId,
           senderPhone: from,
           messageText: text,
           correlationId,
@@ -123,12 +151,14 @@ export default async function handler(req: any, res: any) {
           eventId,
           channel: "whatsapp" as const,
           traceContext: trace,
+          instance,
         };
 
         telemetry.record("ATOMIC_RUNNER_STARTING");
         const result = await runAtomicStaffLoop(staffLoopInput, sql, {
           apiKey: config.LLM_API_KEY,
-          provider: config.LLM_PROVIDER,
+          provider: instance.llm_config.provider as any,
+          model: instance.llm_config.model,
         }, telemetry);
         
         telemetry.record("ATOMIC_RUNNER_FINISHED", { resultType: result.responseType });

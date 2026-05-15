@@ -6,10 +6,11 @@ const ProposedStaffDecisionSchema = z.object({
   customer_need: z.string(),
   intent_type: z.enum(["SALES", "SUPPORT", "COMPLAINT", "INQUIRY", "UNKNOWN"]),
   suggested_action: z.object({
-    type: z.enum(["REPLY", "ESCALATE", "SCHEDULE_FOLLOWUP", "IGNORE"]),
+    type: z.enum(["REPLY", "ESCALATE", "SCHEDULE_FOLLOWUP", "IGNORE", "PROMISE_MADE"]),
     urgency: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]),
     revenue_weight: z.number().min(0).max(1),
     need_classification: z.enum(["REVENUE_NOW", "REVENUE_SOON", "NO_REVENUE", "ESCALATION_REQUIRED"]),
+    commitment_type: z.enum(["AVAILABILITY_LOOKUP", "PRICING_CLARIFICATION", "OWNER_CONSULTATION", "GENERAL_FOLLOWUP"]).optional(),
   }),
   confidence: z.number().min(0).max(1),
 });
@@ -81,10 +82,11 @@ ${businessBrief || "(No business facts available — escalate if factual questio
   "customer_need": "one-line summary of what the customer wants",
   "intent_type": "SALES" | "SUPPORT" | "COMPLAINT" | "INQUIRY" | "UNKNOWN",
   "suggested_action": {
-    "type": "REPLY" | "ESCALATE" | "SCHEDULE_FOLLOWUP" | "IGNORE",
+    "type": "REPLY" | "ESCALATE" | "SCHEDULE_FOLLOWUP" | "IGNORE" | "PROMISE_MADE",
     "urgency": "LOW" | "MEDIUM" | "HIGH" | "URGENT",
     "revenue_weight": 0.0-1.0,
-    "need_classification": "REVENUE_NOW" | "REVENUE_SOON" | "NO_REVENUE" | "ESCALATION_REQUIRED"
+    "need_classification": "REVENUE_NOW" | "REVENUE_SOON" | "NO_REVENUE" | "ESCALATION_REQUIRED",
+    "commitment_type": "AVAILABILITY_LOOKUP" | "PRICING_CLARIFICATION" | "OWNER_CONSULTATION" | "GENERAL_FOLLOWUP" (only if type is PROMISE_MADE)
   },
   "confidence": 0.0-1.0
 }
@@ -128,7 +130,7 @@ export async function generateStaffReply(
   message: string,
   businessBrief: string,
   profile: EmployabilityProfile,
-  config?: { apiKey: string; provider: string }
+  config?: { apiKey: string; provider: string; model?: string }
 ): Promise<ProposedStaffDecision> {
   const systemContract = buildSystemContract(profile, businessBrief);
   const metrics: InferenceMetrics = {
@@ -162,7 +164,7 @@ export async function generateStaffReply(
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: INFERENCE_CONFIG.model,
+            model: config?.model || INFERENCE_CONFIG.model,
             messages: [
               { role: "system", content: systemContract },
               { role: "user", content: message },

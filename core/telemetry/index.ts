@@ -17,7 +17,7 @@ const randomUUID = safeRandomUUID;
 import { ExecutionTimeline, TimelineEvent, ExecutionState, TraceContext } from "../contracts/telemetry.js";
 
 export class TelemetryManager {
-  private timeline: ExecutionTimeline;
+  private timeline: ExecutionTimeline & { instanceId?: string; tenantId?: string };
   private start: number;
 
   constructor(messageId: string, traceId: string) {
@@ -33,6 +33,14 @@ export class TelemetryManager {
     console.log(`[DIAGNOSTIC] TelemetryManager.constructor finished`);
   }
 
+  setInstance(instanceId: string) {
+    this.timeline.instanceId = instanceId;
+  }
+
+  setTenant(tenantId: string) {
+    this.timeline.tenantId = tenantId;
+  }
+
   record(stage: string, metadata?: Record<string, any>) {
     const now = Date.now();
     const event: TimelineEvent = {
@@ -45,8 +53,10 @@ export class TelemetryManager {
     
     // Immediate log for real-time tailing — wrapped to ensure zero-halt
     try {
+      const scope = [this.timeline.tenantId, this.timeline.instanceId].filter(Boolean).join(":");
+      const scopePrefix = scope ? ` [${scope}]` : '';
       const metaStr = metadata ? ` ${JSON.stringify(metadata, (_, v) => typeof v === 'bigint' ? v.toString() : v)}` : '';
-      console.log(`[TELEMETRY] [${this.timeline.traceId}] [${event.elapsedMs}ms] ${stage}${metaStr}`);
+      console.log(`[TELEMETRY] [${this.timeline.traceId}]${scopePrefix} [${event.elapsedMs}ms] ${stage}${metaStr}`);
     } catch (err) {
       console.log(`[TELEMETRY] [${this.timeline.traceId}] [${event.elapsedMs}ms] ${stage} (metadata-log-failed)`);
     }
