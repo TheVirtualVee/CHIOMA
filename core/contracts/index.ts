@@ -28,6 +28,20 @@ export interface EmployabilityProfile {
   working_hours: string;
   revenue_goals?: string;
   response_style: "concise" | "helpful" | "sales-driven";
+  version: number;
+  last_sync_at?: string;
+}
+
+export interface BusinessDailyState {
+  inventory: Array<{
+    item: string;
+    count: number;
+    price: number;
+    metadata?: any;
+  }>;
+  promotions: string[];
+  active_rules: string[];
+  effective_date: string;
 }
 
 export type EmployabilityMode = 

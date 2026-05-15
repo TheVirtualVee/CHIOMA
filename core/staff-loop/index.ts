@@ -32,9 +32,22 @@ export async function runStaffLoop(
     const governedMemories = enforceMemoryGovernance(rawMemories);
 
     const isRecovery = input.messageText.includes("[SYSTEM_RECOVERY_TRIGGER]");
+
+    // ── BRSE Reality Injection ─────────────────────────────────────
+    const [lockedSnapshot] = await sql`
+      SELECT snapshot_data, locked_at FROM business_snapshots 
+      WHERE tenant_id = ${input.tenantId} AND status = 'LOCKED'
+      ORDER BY locked_at DESC LIMIT 1
+    `;
+
+    const realityGrounding = lockedSnapshot 
+      ? `LOCKED_OPERATIONAL_TRUTH (Confirmed by owner at ${lockedSnapshot.locked_at}):\n${JSON.stringify(lockedSnapshot.snapshot_data)}`
+      : "No daily briefing locked for today. Rely on general business knowledge.";
+
     const businessBrief = [
       `Business Knowledge: Last goal was ${governedMemories.find(m => m.key === 'current_goal')?.value || 'none'}`,
       isRecovery ? "CRITICAL: You are recovering an overdue commitment. Do NOT sound robotic. Acknowledge the delay and provide the promised update or escalate if still unknown." : "",
+      realityGrounding,
       ...facts.map((f: { key: string; value: any }) => `${f.key}: ${JSON.stringify(f.value)}`)
     ].filter(Boolean).join("\n");
 
