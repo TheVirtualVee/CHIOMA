@@ -101,6 +101,7 @@ export default async function handler(req: any, res: any) {
 
       if (result.responseText) {
         await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText, trace);
+        telemetry.record("DELIVERY_COMMITTED", { channel: "whatsapp" });
       }
 
       telemetry.complete("COMPLETED");

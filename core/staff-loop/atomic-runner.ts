@@ -13,6 +13,13 @@ import { acquireLease, releaseLease } from "../concurrency/index.js";
 import { buildActiveCommitmentContext } from "../commitments/acil.js";
 import { deductCredit } from "../../infrastructure/database/index.js";
 
+function getSafetyFallback(mode: string): string {
+  if (mode === "CONTINUATION_ONLY" || mode === "COMMITMENT_RESOLUTION") {
+    return "I apologize, I'm having a bit of trouble processing that right now. Let me look into it for you.";
+  }
+  return "I'm sorry, I'm unable to process that at the moment. Is there anything else I can help you with?";
+}
+
 async function resolveEmployabilityProfile(
   tx: any,
   tenantId: string
@@ -21,11 +28,7 @@ async function resolveEmployabilityProfile(
     SELECT business_name, tone_profile, response_style, escalation_contact, working_hours 
     FROM employer_profiles WHERE tenant_id = ${tenantId}
   `;
-
-  if (!profile) {
-    throw new Error(`PROFILE_MISSING: No employability profile found for tenant ${tenantId}`);
-  }
-
+  if (!profile) throw new Error(`PROFILE_MISSING: ${tenantId}`);
   return profile;
 }
 
@@ -39,7 +42,6 @@ export async function runAtomicStaffLoop(
   const correlationId = input.correlationId || `corr_${input.messageId}`;
   const aggregateId = `conv_${input.senderPhone}`;
   const workerId = input.traceContext?.workerId ?? `worker_${randomUUID().slice(0,8)}`;
-
   let leaseToken: number | null = null;
 
   try {
@@ -103,16 +105,19 @@ export async function runAtomicStaffLoop(
           resolveEmployabilityProfile(tx, input.tenantId),
           buildActiveCommitmentContext(tx, input)
         ]);
-
         const extraContext = input.state.execution.contextOverride 
           ? `\n\n[ARBITER_OVERRIDE]: ${input.state.execution.contextOverride}` 
           : "";
-
         loopResult = await runStaffLoop({
           ...input,
           messageText: input.messageText + extraContext
         }, tx, config, profile, activeCommitmentContext);
         break;
+    }
+
+    if (!loopResult.responseText || loopResult.responseText.trim() === "") {
+      telemetry.record("DELIVERY_INVARIANT_VIOLATED", { mode, reason: "EMPTY_RESPONSE" });
+      loopResult.responseText = getSafetyFallback(mode);
     }
 
     if (loopResult.responseType === 'conversation') {
@@ -147,13 +152,14 @@ export async function runAtomicStaffLoop(
     
     await sql`COMMIT`;
     if (leaseToken) await releaseLease(sql, aggregateId, workerId, leaseToken);
+    
+    telemetry.record("EXECUTION_FINALIZED", { responseType: loopResult.responseType });
     return loopResult;
 
   } catch (err: any) {
     await sql`ROLLBACK`;
     console.error(`[ATOMIC_RUNNER] FAULT: ${err.message}`);
     if (leaseToken) await releaseLease(sql, aggregateId, workerId, leaseToken).catch(() => {});
-    
     try {
       await sql`
         INSERT INTO public.execution_failures (
@@ -164,10 +170,13 @@ export async function runAtomicStaffLoop(
       `;
     } catch { }
 
+    const degradedText = (input.state.intent.mode === 'CONTINUATION_ONLY' || input.state.intent.mode === 'COMMITMENT_RESOLUTION')
+      ? "Still pulling that together for you — give me just a moment."
+      : "I'm still pulling that together for you — one moment.";
+
+    telemetry.record("EXECUTION_DEGRADED", { error: err.message });
     return {
-      responseText: (input.state.intent.mode === 'CONTINUATION_ONLY' || input.state.intent.mode === 'COMMITMENT_RESOLUTION')
-        ? "Still pulling that together for you — give me just a moment."
-        : "I'm still pulling that together for you — one moment.",
+      responseText: degradedText,
       responseType: "error_degraded",
       delivered: false,
       latencyMs: Date.now() - start,
