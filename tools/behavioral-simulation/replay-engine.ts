@@ -26,6 +26,14 @@ const PAYMENT_AMBIGUITY_PATTERN: BehavioralStep[] = [
   { sender: "+234_USER_2", text: "Send me the lace now." },
 ];
 
+const UNCERTAINTY_PATTERNS: BehavioralStep[] = [
+  { sender: "+234_USER_3", text: "I want the blue one. No wait, maybe red?" }, // Contradiction
+  { sender: "+234_USER_3", text: "Actually, forget it. Or just send both.", waitMs: 100 },
+  { sender: "+234_USER_4", text: "Your service is too slow! I'm reporting you!" }, // Emotional Drift
+  { sender: "+234_USER_5", text: "How much?" }, // Ambiguity (Incomplete)
+];
+
+
 export async function runBehavioralSimulation() {
   const config = validateConfig();
   const sql = createDatabaseClient(config.DATABASE_URL, { max: 5 });
@@ -40,7 +48,9 @@ export async function runBehavioralSimulation() {
   `;
   await sql`INSERT INTO employer_profiles (tenant_id, onboarding_status, tone_profile) VALUES (${tenantId}, 'COMPLETED', 'friendly-shopkeeper')`;
 
-  const patterns = [LAGOS_SPAM_PATTERN, PAYMENT_AMBIGUITY_PATTERN];
+  const patterns = [LAGOS_SPAM_PATTERN, PAYMENT_AMBIGUITY_PATTERN, UNCERTAINTY_PATTERNS];
+  const traces: any[] = [];
+
 
   for (const pattern of patterns) {
     console.log(`\n--- Pattern Execution ---`);
@@ -83,6 +93,17 @@ export async function runBehavioralSimulation() {
       }
     }));
   }
+
+  // 🧠 FAILURE-MODE SELF-CORRECTION (Analysis)
+  console.log(`\n--- Execution Governance Analysis ---`);
+  const logs = await sql`
+    SELECT outcome, controller_triggered, count(*) 
+    FROM public.cea_execution_logs 
+    WHERE tenant_id = ${tenantId}
+    GROUP BY 1, 2
+  `;
+  console.table(logs);
+
 
   await sql.end();
   console.log("\n✅ BEHAVIORAL SIMULATION COMPLETE.");

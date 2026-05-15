@@ -1,14 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { runAtomicStaffLoop } from "../staff-loop/atomic-runner.js";
 import { TelemetryManager, createTraceContext } from "../telemetry/index.js";
-import { Commitment, StaffLoopInput } from "../contracts/index.js";
 import { resolveInstanceByTenant } from "../routing/instance-router.js";
-import { runArbiter } from "../arbiter/index.js";
-import { getCanonicalIdentity } from "../identity/index.js";
+import { ExecutionKernel } from "../kernel/execution-kernel.js";
 
 /**
  * CHIOMA Commitment Recovery Worker
- * Purpose: Detects and fulfills overdue operational obligations autonomously.
+ * Phase 4 — Consolidated via Execution Kernel
  */
 export async function processOverdueCommitments(sql: any, config: { apiKey: string; provider: string }) {
   const workerId = `recovery_worker_${process.env.VERCEL_REGION || "local"}_${Math.random().toString(36).slice(2, 7)}`;
@@ -18,16 +15,13 @@ export async function processOverdueCommitments(sql: any, config: { apiKey: stri
   telemetry.record("RECOVERY_SCAN_STARTED");
 
   try {
-    // 1. ATOMIC LEASE ACQUISITION
-    // We claim up to 5 overdue commitments in a single atomic transaction.
-    // This implements the "Fencing" you required to prevent duplicate follow-ups.
-    const leaseDuration = "5 minutes";
+    // 1. ATOMIC LEASE ACQUISITION (Still handled here to ensure worker isolation)
     const claimedCommitments = await sql`
       UPDATE public.commitments
       SET 
         status = 'IN_PROGRESS',
         worker_id = ${workerId},
-        lease_expires_at = NOW() + ${leaseDuration}::interval,
+        lease_expires_at = NOW() + INTERVAL '5 minutes',
         attempt_count = attempt_count + 1
       WHERE id IN (
         SELECT id FROM public.commitments
@@ -40,121 +34,50 @@ export async function processOverdueCommitments(sql: any, config: { apiKey: stri
       RETURNING *
     `;
 
-    if (claimedCommitments.length === 0) {
-      telemetry.record("RECOVERY_SCAN_IDLE");
-      return { processed: 0 };
-    }
-
-    telemetry.record("RECOVERY_CLAIMS_ACQUIRED", { count: claimedCommitments.length });
+    if (claimedCommitments.length === 0) return { processed: 0 };
 
     for (const commitment of claimedCommitments) {
-      const commitmentId = commitment.id;
-      const aggregateId = commitment.aggregate_id;
-      const tenantId = commitment.tenant_id;
-      const correlationId = commitment.correlation_id;
+      try {
+        const instance = await resolveInstanceByTenant(sql, commitment.tenant_id);
+        if (!instance) throw new Error(`RECOVERY_FAILURE: Instance not found`);
 
-        telemetry.record("COMMITMENT_RECOVERY_START", { commitmentId, type: commitment.type });
+        const messageId = `recovery_${commitment.id}_${Date.now()}`;
+        const recoveryInput = {
+          messageId,
+          tenantId: commitment.tenant_id,
+          instanceId: instance.instance_id,
+          senderPhone: commitment.aggregate_id.replace("conv_", ""),
+          messageText: `[SYSTEM_RECOVERY_TRIGGER] Resolve ${commitment.type} promise.`,
+          correlationId: commitment.correlation_id,
+          causationId: commitment.originating_event_id || commitment.id,
+          eventId: `evt_recov_${randomUUID()}`,
+          channel: "simulation" as const,
+          traceContext: { ...trace, workerId },
+          instance,
+        };
 
-        try {
-          // 2. RE-ENTRY INTO CANONICAL COGNITION
-          const instance = await resolveInstanceByTenant(sql, tenantId);
-          if (!instance) {
-            throw new Error(`RECOVERY_FAILURE: Instance not found for tenant ${tenantId}`);
-          }
-          telemetry.setTenant(tenantId);
-          telemetry.setInstance(instance.instance_id);
+        // 🧠 KERNEL EXECUTION (The single decision spine)
+        const result = await ExecutionKernel.execute(recoveryInput, sql, {
+          apiKey: config.apiKey,
+          provider: instance.llm_config.provider,
+          model: instance.llm_config.model,
+        }, telemetry);
 
-          const identityId = await getCanonicalIdentity(sql, tenantId, aggregateId.replace("conv_", ""));
-
-          const arbiterRequest = {
-            tenantId,
-            instanceId: instance.instance_id,
-            triggeredBy: "commitment_recovery" as const,
-            commitmentPending: true,
-            activeCommitmentCount: 1, // Currently acting on 1
-            creditBalance: instance.credit_units ?? 0,
-            creditRequired: 1,
-            tenantStatus: (instance.billing_state.toLowerCase() as any) || "active",
-            safetyFlags: [],
-            requestedAt: Date.now(),
-            fingerprint: `recovery_${commitmentId}`,
-            identityId,
-            schedulerConflict: false // Worker has already claimed the lease in Stage 1
-          };
-
-          const verdict = await runArbiter(arbiterRequest, sql, config.apiKey);
-          if (verdict.outcome === 'BLOCK_RESPONSE') {
-            throw new Error(`ARBITER_BLOCK: ${verdict.reason}`);
-          }
-
-          const messageId = `recovery_${commitmentId}_${Date.now()}`;
-          
-          // Prime the ledger to maintain the canonical execution chain
-          await sql`
-            INSERT INTO public.message_ledger (message_id, tenant_id, status)
-            VALUES (${messageId}, ${tenantId}, 'RECEIVED')
-          `;
-
-          const recoveryInput: StaffLoopInput = {
-            messageId: messageId,
-            tenantId: tenantId,
-            instanceId: instance.instance_id,
-            senderPhone: aggregateId.replace("conv_", ""),
-            messageText: `[SYSTEM_RECOVERY_TRIGGER] You promised a ${commitment.type} follow-up for this customer. The deadline has passed. Resolve this now.`,
-            correlationId: correlationId,
-            causationId: commitment.originating_event_id || commitmentId,
-            eventId: `evt_recov_${randomUUID()}`,
-            channel: "simulation",
-            traceContext: { ...trace, workerId },
-            snapshotId: commitment.snapshot_id, // Honoring historical truth
-            instance,
-          };
-
-          const result = await runAtomicStaffLoop(recoveryInput, sql, {
-            apiKey: config.apiKey,
-            provider: instance.llm_config.provider,
-            model: instance.llm_config.model,
-          }, telemetry);
-
-        // 3. FINALIZE COMMITMENT
-        const resolutionLatencyMs = Date.now() - new Date(commitment.created_at).getTime();
-        
+        // Update commitment based on kernel result
         await sql`
           UPDATE public.commitments
-          SET 
-            status = 'RESOLVED',
-            resolved_at = NOW(),
-            worker_id = NULL,
-            lease_expires_at = NULL
-          WHERE id = ${commitmentId}
+          SET status = ${result.responseType === 'error_degraded' ? 'FAILED' : 'RESOLVED'},
+              resolved_at = ${result.responseType === 'error_degraded' ? null : 'NOW()'},
+              lease_expires_at = NULL
+          WHERE id = ${commitment.id}
         `;
-
-        telemetry.record("COMMITMENT_RECOVERY_SUCCESS", { 
-          commitmentId, 
-          responseType: result.responseType,
-          resolutionLatencyMs 
-        });
 
       } catch (err: any) {
-        // 4. ESCALATION POLICY
-        // If the cognition pipeline fails during recovery, we escalate or mark as FAILED for retry.
-        const isLastAttempt = commitment.attempt_count >= 3;
-        const newStatus = isLastAttempt ? "ESCALATED" : "FAILED";
-
         await sql`
           UPDATE public.commitments
-          SET 
-            status = ${newStatus},
-            worker_id = NULL,
-            lease_expires_at = NULL
-          WHERE id = ${commitmentId}
+          SET status = 'FAILED', lease_expires_at = NULL, last_error = ${err.message}
+          WHERE id = ${commitment.id}
         `;
-
-        telemetry.record("COMMITMENT_RECOVERY_FAILED", { 
-          commitmentId, 
-          error: err.message, 
-          finalEscalation: isLastAttempt 
-        });
       }
     }
 

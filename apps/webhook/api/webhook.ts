@@ -1,24 +1,22 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { validateConfig } from "../../../infrastructure/config/index.js";
 import { createDatabaseClient } from "../../../infrastructure/database/index.js";
-import { runAtomicStaffLoop } from "../../../core/staff-loop/atomic-runner.js";
 import { sendWhatsAppMessage } from "../../../infrastructure/whatsapp/index.js";
 import { TelemetryManager, createTraceContext } from "../../../core/telemetry/index.js";
 import { resolveInstance } from "../../../core/routing/instance-router.js";
-import { billingGate } from "../../../core/billing/gate.js";
+import { ExecutionKernel } from "../../../core/kernel/execution-kernel.js";
 
 /**
  * api/webhook.ts — WhatsApp Cloud API inbound handler.
+ * Consolidated via Phase 4 Execution Kernel.
  */
 
 export default async function handler(req: any, res: any) {
-  console.log(`[BOOT] Webhook Handler Active [v1.4-universal-guard] [${req.method}]`);
-  
   try {
     const workerId = `worker_${(typeof process !== 'undefined' ? process.env?.VERCEL_REGION : 'unknown') || "local"}`;
     const trace = createTraceContext(workerId);
     
-    // 1. GET: WhatsApp webhook verification challenge
+    // 1. WhatsApp Webhook Verification
     if (req.method === "GET") {
       const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
       if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === verifyToken) {
@@ -27,23 +25,21 @@ export default async function handler(req: any, res: any) {
       return res.status(403).send("Forbidden");
     }
 
-    if (req.method !== "POST") {
-      return res.status(405).json({ error: "Method not allowed" });
-    }
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-    // 2. Ingress Telemetry & Identification
+    // 2. Ingress Identification
     const entry = req.body?.entry?.[0];
     const value = entry?.changes?.[0]?.value;
     const messages = value?.messages;
-    const messageId = messages?.[0]?.id || "unknown";
+    if (!messages || messages.length === 0) return res.status(200).json({ ok: true, ignored: true });
 
+    const message = messages[0];
+    const messageId = message.id || "unknown";
+    const from = message.from as string;
+    const text = (message.text?.body as string) || "";
+    const phoneNumberId = value.metadata?.phone_number_id as string;
+    
     const telemetry = new TelemetryManager(messageId, trace.traceId);
-    telemetry.record("REQUEST_RECEIVED", { 
-      method: req.method, 
-      traceId: trace.traceId, 
-      executionId: trace.executionId 
-    });
-
     const config = validateConfig();
 
     // 3. Signature Validation
@@ -52,171 +48,62 @@ export default async function handler(req: any, res: any) {
       ? (req as any).rawBody.toString() 
       : (typeof req.body === "string" ? req.body : JSON.stringify(req.body));
 
-    if (!config.WHATSAPP_APP_SECRET) {
-      telemetry.record("MISSING_WHATSAPP_APP_SECRET");
-      throw new Error("WHATSAPP_APP_SECRET is not configured.");
-    }
-
-    if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET)) {
-      console.warn(`[WEBHOOK] INVALID_SIGNATURE [${trace.traceId}]`);
-      telemetry.record("INVALID_SIGNATURE");
+    if (!validateSignature(rawBody, signature, config.WHATSAPP_APP_SECRET || "")) {
       return res.status(401).json({ error: "Invalid signature" });
     }
 
-    // 4. Message Filtering
-    if (!messages || messages.length === 0) {
-      telemetry.record("NO_MESSAGES_IGNORED");
-      telemetry.complete("COMPLETED");
-      return res.status(200).json({ ok: true, ignored: true });
-    }
-
-    const message = messages[0];
-    const from = message.from as string;
-    const text = (message.text?.body as string) || "";
-    const phoneNumberId = value.metadata?.phone_number_id as string;
-    const correlationId = `corr_${messageId}`;
-
-    // 5. Database & Instance Resolution
+    // 4. Instance Resolution
     const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
-
     try {
-      telemetry.record("INSTANCE_RESOLUTION_STARTED", { phoneNumberId });
       const instance = await resolveInstance(sql, phoneNumberId);
-
       if (!instance) {
         telemetry.record("INSTANCE_NOT_FOUND", { phoneNumberId });
-        telemetry.complete("FAILED");
         return res.status(200).json({ ok: false, error: "Instance not registered" });
       }
 
-      const tenantId = instance.tenant_id;
-      const instanceId = instance.instance_id;
-      telemetry.setTenant(tenantId);
-      telemetry.setInstance(instanceId);
+      telemetry.setTenant(instance.tenant_id);
+      telemetry.setInstance(instance.instance_id);
 
-      // 6. Billing Gate
-      const billing = billingGate(instance);
-      if (!billing.allowed) {
-        telemetry.record("BILLING_REJECTED", { reason: billing.response });
-        if (billing.response) {
-          await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, billing.response, trace);
-        }
-        telemetry.complete("COMPLETED");
-        return res.status(200).json({ ok: true, billing_rejected: true });
+      // 5. KERNEL EXECUTION (The single decision spine)
+      const staffLoopInput = {
+        messageId,
+        tenantId: instance.tenant_id,
+        instanceId: instance.instance_id,
+        senderPhone: from,
+        messageText: text,
+        correlationId: `corr_${messageId}`,
+        causationId: messageId,
+        eventId: `evt_${messageId}`,
+        channel: "whatsapp" as const,
+        traceContext: trace,
+        instance,
+      };
+
+      const result = await ExecutionKernel.execute(staffLoopInput, sql, {
+        apiKey: config.LLM_API_KEY,
+        provider: instance.llm_config.provider as any,
+        model: instance.llm_config.model,
+      }, telemetry);
+
+      // 6. Response Dispatch
+      if (result.responseText) {
+        await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText, trace);
       }
-      telemetry.record("BILLING_APPROVED");
 
-      // 🧠 LIFECYCLE EXECUTION (Synchronous & Awaited)
-      const executionPromise = (async () => {
-
-        // ── Idempotency Check ─────────────────────────────────────────────
-        telemetry.record("LEDGER_CHECK_STARTED");
-        const [existing] = await sql`
-          SELECT status, updated_at FROM message_ledger WHERE message_id = ${messageId}
-        `;
-
-        if (existing) {
-          if (existing.status === "COMPLETED") {
-            telemetry.record("LEDGER_BLOCK", { reason: "COMPLETED" });
-            telemetry.complete("COMPLETED");
-            return { duplicate: true };
-          }
-          const lastUpdate = new Date(existing.updated_at).getTime();
-          if (existing.status === "PROCESSING" && Date.now() - lastUpdate < 25000) {
-            telemetry.record("LEDGER_BLOCK", { reason: "IN_PROGRESS" });
-            telemetry.complete("COMPLETED");
-            return { retry_ignored: true };
-          }
-          await sql`
-            UPDATE message_ledger SET status = 'PROCESSING', updated_at = NOW()
-            WHERE message_id = ${messageId}
-          `;
-        } else {
-          await sql`
-            INSERT INTO message_ledger (message_id, tenant_id, status)
-            VALUES (${messageId}, ${tenantId}, 'RECEIVED')
-          `;
-        }
-
-        // ── Run Atomic Staff Loop ────────────────────────────────────────
-        const eventId = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-        const staffLoopInput = {
-          messageId,
-          tenantId,
-          instanceId,
-          senderPhone: from,
-          messageText: text,
-          correlationId,
-          causationId: eventId,
-          eventId,
-          channel: "whatsapp" as const,
-          traceContext: trace,
-          instance,
-        };
-
-        telemetry.record("ATOMIC_RUNNER_STARTING");
-        const result = await runAtomicStaffLoop(staffLoopInput, sql, {
-          apiKey: config.LLM_API_KEY,
-          provider: instance.llm_config.provider as any,
-          model: instance.llm_config.model,
-        }, telemetry);
-        
-        telemetry.record("ATOMIC_RUNNER_FINISHED", { resultType: result.responseType });
-
-        // ── Dispatch Response ────────────────────────────────────────────
-        if (result.responseText) {
-          const phoneNumberId = (value.metadata?.phone_number_id as string | undefined)
-            ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
-          if (phoneNumberId) {
-            telemetry.record("WHATSAPP_DISPATCH_STARTING");
-            try {
-              await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText, trace);
-              telemetry.record("WHATSAPP_DISPATCH_SUCCESS");
-            } catch (waErr: unknown) {
-              const msg = waErr instanceof Error ? waErr.message : String(waErr);
-              telemetry.record("WHATSAPP_DISPATCH_FAILED", { error: msg });
-              // We don't throw here to ensure telemetry completion and ledger finality
-            }
-          } else {
-            telemetry.record("WHATSAPP_DISPATCH_SKIPPED", { reason: "MISSING_PHONE_NUMBER_ID" });
-          }
-        }
-
-        telemetry.complete("COMPLETED");
-        return { ok: true };
-      })();
-
-      // 🧠 DIRECT EXECUTION (No Race)
-      // We await the entire chain until the end of side-effects.
-      // Individual timeouts (LLM, WhatsApp) protect us from hanging.
-      const result = await executionPromise;
-
-      if (result.duplicate) return res.status(200).json({ ok: true, duplicate: true });
-      if (result.retry_ignored) return res.status(200).json({ ok: true, retry_ignored: true });
-
+      telemetry.complete("COMPLETED");
       return res.status(200).json({ ok: true, traceId: trace.traceId });
 
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      telemetry.record("EXECUTION_FAILED", { error: msg });
-      telemetry.complete("FAILED");
-      
-      // We still return 200 to WhatsApp to prevent retries of failed logic, 
-      // but the body indicates the failure.
-      return res.status(200).json({ ok: false, error: msg, traceId: trace.traceId });
     } finally {
-      // 🧠 CRITICAL: Always close SQL and ensure no floating promises
       await sql.end();
     }
 
-  } catch (outerErr: unknown) {
-    const msg = outerErr instanceof Error ? outerErr.message : String(outerErr);
+  } catch (outerErr: any) {
     console.error(`[FATAL_INBOUND_CRASH]`, outerErr);
-    return res.status(500).json({ ok: false, error: "Universal Guard Triggered", detail: msg });
+    return res.status(500).json({ ok: false, error: "Universal Guard Triggered", detail: outerErr.message });
   }
 }
 
-function validateSignature(rawBody: string, signature: string | null, secret: string): boolean {
+function validateSignature(rawBody: string, signature: string, secret: string): boolean {
   if (!signature?.startsWith("sha256=")) return false;
   const expected = createHmac("sha256", secret).update(rawBody, "utf8").digest("hex");
   const received = signature.slice(7);
