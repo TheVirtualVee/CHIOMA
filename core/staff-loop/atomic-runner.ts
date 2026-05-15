@@ -13,6 +13,8 @@ import { TelemetryManager } from "../telemetry/index.js";
 import { acquireLease, releaseLease } from "../concurrency/index.js";
 import { RealityGovernor } from "../reality/governor.js";
 import { deductCredit } from "../billing/gate.js";
+import { runArbiter } from "../arbiter/index.js";
+import { ExecutionRequest } from "../contracts/index.js";
 
 export async function runAtomicStaffLoop(
   input: StaffLoopInput,
@@ -135,12 +137,66 @@ export async function runAtomicStaffLoop(
         };
       }
 
+      // ── EXECUTION ARBITER (CEA) GATE ───────────────────────────────
+      telemetry.record("ARBITER_GATING_STARTED");
+      
+      const [commitment] = await tx`
+        SELECT id FROM public.commitments 
+        WHERE tenant_id = ${input.tenantId} 
+          AND aggregate_id = ${aggregateId} 
+          AND status = 'PENDING' 
+        LIMIT 1
+      `;
+
+      const arbiterRequest: ExecutionRequest = {
+        tenantId: input.tenantId,
+        instanceId: input.instanceId,
+        triggeredBy: input.messageText.startsWith("/") ? "daily_brief" : "whatsapp_message",
+        commitmentPending: !!commitment,
+        creditBalance: input.instance?.credit_units ?? 0,
+        creditRequired: 1,
+        tenantStatus: (input.instance?.billing_state.toLowerCase() as any) || "active",
+        safetyFlags: [], // TODO: Integrate safety classifier
+        requestedAt: Date.now()
+      };
+
+      const verdict = await runArbiter(arbiterRequest, config.apiKey);
+      telemetry.record("ARBITER_GATING_FINISHED", { outcome: verdict.outcome });
+
+      if (verdict.outcome === 'BLOCK_RESPONSE') {
+        await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
+        return {
+          responseText: "Your account requires attention. Please contact support.",
+          responseType: "conversation",
+          delivered: false,
+          latencyMs: Date.now() - start,
+          correlationId,
+        };
+      }
+
+      if (verdict.outcome === 'DEGRADE_RESPONSE') {
+        await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;
+        return {
+          responseText: "I'm having a bit of trouble right now. Please try again later.",
+          responseType: "error_degraded",
+          delivered: false,
+          latencyMs: Date.now() - start,
+          correlationId,
+        };
+      }
+
+      // Handle QUEUE_FOR_RECOVERY or context overrides
+      const extraContext = verdict.contextOverride ? `\n\n[ARBITER_OVERRIDE]: ${verdict.contextOverride}` : "";
+
       // ── BILLING DEDUCTION ──────────────────────────────────────────
       // Deduct credit BEFORE LLM call to prevent free usage on crash
       telemetry.record("BILLING_DEDUCTION_STARTED");
       await deductCredit(tx, input.instanceId, input.tenantId, correlationId, 1);
       
-      const loopResult = await runStaffLoop(input, tx, config, profile);
+      const loopResult = await runStaffLoop({
+        ...input,
+        messageText: input.messageText + extraContext
+      }, tx, config, profile);
       telemetry.record("INFERENCE_COMPLETED", { latencyMs: loopResult.latencyMs });
       
       // ASSERT: return fallback instead of throw — throw kills the TX and

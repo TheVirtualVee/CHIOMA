@@ -125,3 +125,30 @@ export interface Commitment {
   workerId?: string;
   leaseExpiresAt?: string;
 }
+
+export type ExecutionRequest = {
+  tenantId: string;
+  instanceId: string;
+  triggeredBy: 'whatsapp_message' | 'abm_schedule' | 'commitment_recovery' | 'daily_brief';
+  commitmentPending: boolean;
+  creditBalance: number;
+  creditRequired: number;
+  tenantStatus: 'active' | 'suspended' | 'trial_expired';
+  safetyFlags: string[];
+  requestedAt: number;
+};
+
+export type ArbiterVerdict = {
+  outcome:
+    | 'ALLOW'
+    | 'ALLOW_WITH_CONTEXT_OVERRIDE'
+    | 'DEGRADE_RESPONSE'
+    | 'BLOCK_RESPONSE'
+    | 'QUEUE_FOR_RECOVERY';
+  reason: string;
+  controllerTriggered: string;
+  contextOverride?: string; // MAX 1–3 sentences, business-safe only
+  recoveryPayload?: object;
+  resolvedAt: number;
+};
+
