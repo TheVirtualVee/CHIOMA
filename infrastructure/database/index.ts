@@ -5,12 +5,15 @@ export function createDatabaseClient(url: string, options: { max?: number } = {}
     throw new Error("DATABASE_URL_INVALID");
   }
 
-  return postgres(url, {
+  console.log(`[DB_INFRA] Creating client [max=${options.max ?? 10}]`);
+  const client = postgres(url, {
     max: options.max ?? 10,
     ssl: "require",
     idle_timeout: 20,
     connect_timeout: 10,
   });
+
+  return client;
 }
 
 export async function commitEvent(

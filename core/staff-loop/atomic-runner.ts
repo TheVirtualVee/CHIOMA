@@ -17,12 +17,17 @@ export async function runAtomicStaffLoop(
   config: { apiKey: string; provider: string },
   telemetry: TelemetryManager
 ): Promise<StaffLoopResult> {
+  // 🧠 CRITICAL: Immediate entry log for observability
+  telemetry.record("ATOMIC_RUNNER_ENTRY", { messageId: input.messageId });
+  
   const start = Date.now();
   const aggregateId = `conv_${input.senderPhone}`;
-  const correlationId = input.correlationId;
+  const correlationId = input.correlationId || `corr_${input.messageId}`;
+  
   // ASSERT: traceContext optional — prevent crash before acquireLease when absent
-  const workerId = input.traceContext?.workerId ?? ("worker_" + input.messageId.slice(0, 8));
-  telemetry.record("ATOMIC_RUNNER_STARTED", { aggregateId, correlationId });
+  const workerId = input.traceContext?.workerId ?? ("worker_" + (input.messageId || "unknown").slice(0, 8));
+  
+  telemetry.record("ATOMIC_RUNNER_STARTED", { aggregateId, correlationId, workerId });
 
   // Acquire concurrency lease with fencing token
   const lease = await acquireLease(sql, aggregateId, workerId);

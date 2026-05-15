@@ -78,8 +78,10 @@ export default async function handler(req: any, res: any) {
     const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
     try {
-      // 🧠 GLOBAL TIMEOUT GUARD: Ensure we don't let the process hang indefinitely
-      const lifecyclePromise = (async () => {
+      // 🧠 LIFECYCLE EXECUTION (Synchronous & Awaited)
+      // We no longer use detached promises or race conditions that cause Vercel halts.
+      
+      const executionPromise = (async () => {
         // ── Idempotency Check ─────────────────────────────────────────────
         telemetry.record("LEDGER_CHECK_STARTED");
         const [existing] = await sql`
@@ -143,7 +145,10 @@ export default async function handler(req: any, res: any) {
             } catch (waErr: unknown) {
               const msg = waErr instanceof Error ? waErr.message : String(waErr);
               telemetry.record("WHATSAPP_DISPATCH_FAILED", { error: msg });
+              // We don't throw here to ensure telemetry completion and ledger finality
             }
+          } else {
+            telemetry.record("WHATSAPP_DISPATCH_SKIPPED", { reason: "MISSING_PHONE_NUMBER_ID" });
           }
         }
 
@@ -151,30 +156,26 @@ export default async function handler(req: any, res: any) {
         return { ok: true };
       })();
 
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("LIFECYCLE_TIMEOUT")), 15000)
-      );
+      // 🧠 DIRECT EXECUTION (No Race)
+      // We await the entire chain until the end of side-effects.
+      // Individual timeouts (LLM, WhatsApp) protect us from hanging.
+      const result = await executionPromise;
 
-      const lifecycleResult = await Promise.race([lifecyclePromise, timeoutPromise]) as any;
-
-      if (lifecycleResult.duplicate) {
-        return res.status(200).json({ ok: true, duplicate: true });
-      }
-      if (lifecycleResult.retry_ignored) {
-        return res.status(200).json({ ok: true, retry_ignored: true });
-      }
-      if (lifecycleResult.ignored) {
-        return res.status(200).json({ ok: true, ignored: true });
-      }
+      if (result.duplicate) return res.status(200).json({ ok: true, duplicate: true });
+      if (result.retry_ignored) return res.status(200).json({ ok: true, retry_ignored: true });
 
       return res.status(200).json({ ok: true, traceId: trace.traceId });
 
-    } catch (innerErr: unknown) {
-      const msg = innerErr instanceof Error ? innerErr.message : String(innerErr);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       telemetry.record("EXECUTION_FAILED", { error: msg });
       telemetry.complete("FAILED");
-      return res.status(200).json({ ok: false, error: msg });
+      
+      // We still return 200 to WhatsApp to prevent retries of failed logic, 
+      // but the body indicates the failure.
+      return res.status(200).json({ ok: false, error: msg, traceId: trace.traceId });
     } finally {
+      // 🧠 CRITICAL: Always close SQL and ensure no floating promises
       await sql.end();
     }
 

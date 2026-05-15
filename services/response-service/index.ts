@@ -15,7 +15,7 @@ const ProposedStaffDecisionSchema = z.object({
 });
 
 const INFERENCE_CONFIG = {
-  timeoutMs: 8_000,
+  timeoutMs: 5_000,
   maxRetries: 1,
   retryDelayMs: 500,
   model: "llama-3.3-70b-versatile",
