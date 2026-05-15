@@ -53,6 +53,15 @@ const VERBOSE_FILLER = [
   /\bThank you so much for\b/gi,
   /\bI completely understand\b/gi,
 ];
+const DESPERATION_PATTERNS = [
+  /\bplease (?:don't|do not) hesitate\b/gi,
+  /\bwe would (?:love|really love) to\b/gi,
+  /\bdon't miss (?:out|this)\b/gi,
+  /\bact now\b/gi,
+  /\blimited time\b/gi,
+  /\bhurry\b/gi,
+];
+
 const GREETING_PATTERNS = [
   /^hello[!, ]*/i,
   /^hi[!, ]*/i,
