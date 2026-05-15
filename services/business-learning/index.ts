@@ -8,13 +8,20 @@ import type { BusinessDraft } from "../../core/contracts/index.js";
  * Analyzes social media and website signals to train the digital employee.
  */
 
-const BusinessDraftSchema = z.object({
+const BusinessModelSchema = z.object({
   name_guess: z.string(),
-  products_guess: z.array(z.string()),
-  pricing_guess: z.string().optional(),
+  entities: z.array(z.object({
+    category: z.string(), // e.g. "Accommodation", "Consultation", "Physical Product"
+    label: z.string(),    // e.g. "Deluxe Room", "1-hour session"
+    price_point: z.string().optional(),
+    billing_unit: z.string().optional() // e.g. "per night", "fixed"
+  })),
+  workflow_guess: z.object({
+    booking_process: z.string(), // How customers book
+    payment_terms: z.string(),   // Deposit vs Full vs Post-pay
+    customer_qualifier: z.string() // What info is needed from customer
+  }),
   tone_guess: z.string(),
-  location_guess: z.string().optional(),
-  working_pattern_guess: z.string().optional(),
   confidence_scores: z.record(z.number()),
 });
 
@@ -29,21 +36,18 @@ This is INFERENCE, not truth. Be honest about confidence.
 
 EXTRACT:
 1. Business Name
-2. Top Products/Services
-3. Pricing patterns (if visible)
-4. Tone of voice (friendly, luxury, etc)
-5. Location (if visible)
-6. Working hours (if visible)
+2. Operational Entities (What is being sold? Include unit like "per night")
+3. Booking Workflow (How does a customer secure a slot/product?)
+4. Payment Terms (Upfront, deposit, etc.)
+5. Tone of voice (friendly, luxury, etc)
 
 Return ONLY JSON:
 {
   "name_guess": string,
-  "products_guess": string[],
-  "pricing_guess": string,
+  "entities": [{ "category": string, "label": string, "price_point": string, "billing_unit": string }],
+  "workflow_guess": { "booking_process": string, "payment_terms": string, "customer_qualifier": string },
   "tone_guess": string,
-  "location_guess": string,
-  "working_pattern_guess": string,
-  "confidence_scores": { "name": 0-1, "products": 0-1, ... }
+  "confidence_scores": { "name": 0-1, "entities": 0-1, "workflow": 0-1 }
 }`;
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -68,17 +72,26 @@ Return ONLY JSON:
   const data = await response.json() as any;
   const rawContent = data.choices[0].message.content;
   
-  return BusinessDraftSchema.parse(JSON.parse(rawContent)) as BusinessDraft;
+  return BusinessModelSchema.parse(JSON.parse(rawContent)) as BusinessDraft;
 }
 
 export function formatDraftForEmployer(draft: BusinessDraft): string {
-  return `I've finished my research! Here is what I've learned about your business:
+  const entitySummary = draft.entities
+    .map(e => `• ${e.label} (${e.category}) - ${e.price_point || 'Price unknown'} ${e.billing_unit || ''}`)
+    .join("\n");
+
+  return `I've finished my research! Here is how I understand your business logic:
 
 🏢 *Business Name*: ${draft.name_guess}
-🛍️ *What you sell*: ${draft.products_guess.join(", ")}
-💰 *Pricing*: ${draft.pricing_guess || "Not specified"}
-📍 *Location*: ${draft.location_guess || "Not specified"}
-🕒 *Hours*: ${draft.working_pattern_guess || "Not specified"}
+
+🛍️ *Operational Entities*:
+${entitySummary}
+
+⚙️ *Workflow*:
+- Booking: ${draft.workflow_guess.booking_process}
+- Payment: ${draft.workflow_guess.payment_terms}
+- Customer Info Needed: ${draft.workflow_guess.customer_qualifier}
+
 ✨ *Tone*: I'll respond in a ${draft.tone_guess} style.
 
 Does this look correct to you? Please tell me what I should fix or add!`;

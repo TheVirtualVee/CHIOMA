@@ -59,11 +59,18 @@ export interface StaffAction {
 
 export interface BusinessDraft {
   name_guess: string;
-  products_guess: string[];
-  pricing_guess?: string;
+  entities: Array<{
+    category: string;
+    label: string;
+    price_point?: string;
+    billing_unit?: string;
+  }>;
+  workflow_guess: {
+    booking_process: string;
+    payment_terms: string;
+    customer_qualifier: string;
+  };
   tone_guess: string;
-  location_guess?: string;
-  working_pattern_guess?: string;
   confidence_scores: Record<string, number>;
 }
 
