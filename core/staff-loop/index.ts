@@ -71,6 +71,18 @@ export async function runStaffLoop(
       console.error("[ACIL] UNEXPECTED_ACIL_ERROR:", String(err).slice(0, 120));
     }
 
+    const lastNeed = governedMemories.find(m => m.key === 'last_customer_need')?.value || "";
+    const currentGoal = governedMemories.find(m => m.key === 'current_goal')?.value || "";
+
+    const conversationHeartbeat = lastNeed || currentGoal 
+      ? `## CONVERSATION_HEARTBEAT (STRICT CONTINUITY):
+- The user is RETURNING. This is NOT a new session.
+- Last Customer Need: "${lastNeed}"
+- Current Active Goal: "${currentGoal}"
+- INSTRUCTION: Do NOT greet the user. Skip "Hello" or "How can I help". 
+- ACTION: Respond DIRECTLY to the message within the context of the goal above.`
+      : "## CONVERSATION_HEARTBEAT: New session started.";
+
     const strategicDirective = input.executionMode === "CONTINUATION_ONLY" || input.executionMode === "COMMITMENT_RESOLUTION"
       ? `## STRATEGIC_EXECUTION_DIRECTIVE (CRITICAL):
 - MODE: ${input.executionMode}

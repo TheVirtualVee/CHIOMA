@@ -8,7 +8,7 @@ import { evaluateEmployeePerformance } from "../staff-rules/performance-scorer.j
 import { enforceEmployeePsychology } from "../staff-rules/behavioral-enforcer.js";
 import { processOnboardingStep } from "../../services/onboarding-service/index.js";
 import { processDailyBriefStep } from "../../services/daily-briefing-service/index.js";
-import { StaffLoopInput, StaffLoopResult, EmployabilityProfile } from "../contracts/index.js";
+import { StaffLoopInput, StaffLoopResult, EmployabilityProfile, ExecutionMode } from "../contracts/index.js";
 import { TelemetryManager } from "../telemetry/index.js";
 import { acquireLease, releaseLease } from "../concurrency/index.js";
 import { RealityGovernor } from "../reality/governor.js";
@@ -158,6 +158,19 @@ export async function runAtomicStaffLoop(
         FROM employer_profiles WHERE tenant_id = ${input.tenantId}
       `;
       if (!profile) throw new Error("STATE_INCONSISTENCY: Onboarding complete but profile missing.");
+
+      // 🧠 LOAD STATE: Fetch customer memory early for Execution Mode Gate
+      let state: any = null;
+      try {
+        const [stateRow]: any[] = await tx`
+          SELECT last_customer_need, current_goal 
+          FROM public.customer_memory 
+          WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}
+        `;
+        state = stateRow ?? null;
+      } catch (stateErr: unknown) {
+        telemetry.record("STATE_LOOKUP_FAILED", { reason: String(stateErr).slice(0, 80) });
+      }
 
       // 2. PROPOSED Stage (Inference)
       assertLegalTransition("LEDGERED", "PROPOSED");
