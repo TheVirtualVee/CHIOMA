@@ -10,6 +10,7 @@ import { validateStaffAction, sanitizeStaffReply } from "../staff-rules/index.js
 import { enforceEmployeePsychology } from "../staff-rules/behavioral-enforcer.js";
 import { generateStaffReply } from "../../services/response-service/index.js";
 import { enforceMemoryGovernance, createGovernedMemory } from "../memory/governance.js";
+import { buildActiveCommitmentContext } from "../commitments/acil.js";
 
 export async function runStaffLoop(
   input: StaffLoopInput,
@@ -58,9 +59,22 @@ export async function runStaffLoop(
       ? `LOCKED_OPERATIONAL_TRUTH (Confirmed by owner at ${lockedSnapshot.locked_at}):\n${JSON.stringify(lockedSnapshot.snapshot_data)}`
       : "No daily briefing locked for today. Rely on general business knowledge.";
 
+    // ACIL — Active Commitment Injection
+    // Must be called before businessBrief assembly. Failure returns empty string.
+    let activeCommitmentContext = "";
+    try {
+      activeCommitmentContext = await buildActiveCommitmentContext(sql, input);
+      if (activeCommitmentContext) {
+        console.log("[ACIL] COMMITMENT_CONTEXT_INJECTED for", input.tenantId);
+      }
+    } catch (err: unknown) {
+      console.error("[ACIL] UNEXPECTED_ACIL_ERROR:", String(err).slice(0, 120));
+    }
+
     const businessBrief = [
+      activeCommitmentContext,                                                 // ← ACIL injection (first = highest priority)
       `Business Knowledge: Last goal was ${governedMemories.find(m => m.key === 'current_goal')?.value || 'none'}`,
-      isRecovery ? "CRITICAL: You are recovering an overdue commitment. Do NOT sound robotic. Acknowledge the delay and provide the promised update or escalate if still unknown." : "",
+      isRecovery ? "CRITICAL: You are recovering..." : "",
       realityGrounding,
       ...facts.map((f: { key: string; value: any }) => `${f.key}: ${JSON.stringify(f.value)}`)
     ].filter(Boolean).join("\n");
