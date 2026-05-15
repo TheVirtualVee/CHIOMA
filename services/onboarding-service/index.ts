@@ -79,7 +79,8 @@ export async function processOnboardingStep(
     SET onboarding_status = 'COMPLETED', 
         current_onboarding_step = NULL,
         tone_profile = 'friendly-shopkeeper',
-        response_style = 'helpful'
+        response_style = 'helpful',
+        version = 1
     WHERE tenant_id = ${tenantId}
   `;
 

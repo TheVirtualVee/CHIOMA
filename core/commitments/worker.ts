@@ -72,6 +72,7 @@ export async function processOverdueCommitments(sql: any, config: { apiKey: stri
             eventId: `evt_recov_${randomUUID()}`,
             channel: "simulation",
             traceContext: { ...trace, workerId },
+            snapshotId: commitment.snapshot_id, // Honoring historical truth
           };
 
           const result = await runAtomicStaffLoop(recoveryInput, sql, config, telemetry);

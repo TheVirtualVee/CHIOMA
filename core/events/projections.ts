@@ -17,8 +17,8 @@ export function applyEvent(state: ProjectedState, event: ChiomaEvent): Projected
     case "MESSAGE_RECEIVED":
       return {
         ...state,
-        lastMessageAt: event.payload.receivedAt,
-        pendingMessageId: event.payload.whatsappMessageId,
+        lastMessageAt: event.occurredAt,
+        pendingMessageId: event.payload.waMessageId,
       };
 
     case "PROPOSAL_GENERATED":

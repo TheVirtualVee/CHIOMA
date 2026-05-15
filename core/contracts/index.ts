@@ -10,6 +10,7 @@ export interface StaffLoopInput {
   eventId: string;
   channel: "whatsapp" | "simulation";
   traceContext?: TraceContext; // Optional — fallback created if absent
+  snapshotId?: string; // Temporal grounding key
 }
 
 export interface StaffLoopResult {

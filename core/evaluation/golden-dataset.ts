@@ -39,7 +39,8 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       tone_profile: "luxury",
       response_style: "sales-driven",
       escalation_contact: "Manager",
-      working_hours: "9am - 6pm"
+      working_hours: "9am - 6pm",
+      version: 1
     },
     expectedOutcome: {
       minScore: 0.85,
@@ -68,7 +69,8 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       tone_profile: "friendly-shopkeeper",
       response_style: "helpful",
       escalation_contact: "Owner",
-      working_hours: "9am - 6pm"
+      working_hours: "9am - 6pm",
+      version: 1
     },
     expectedOutcome: {
       minScore: 0.9,
@@ -97,7 +99,8 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       tone_profile: "friendly-shopkeeper",
       response_style: "helpful",
       escalation_contact: "Owner",
-      working_hours: "9am - 6pm"
+      working_hours: "9am - 6pm",
+      version: 1
     },
     expectedOutcome: {
       minScore: 0.8,

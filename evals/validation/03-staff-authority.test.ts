@@ -26,6 +26,7 @@ describe("Phase 4 — Deterministic Authority Engine", () => {
     escalation_contact: "+2348001234567",
     working_hours: "9am-6pm",
     response_style: "helpful" as const,
+    version: 1,
   };
 
   const baseContext = {

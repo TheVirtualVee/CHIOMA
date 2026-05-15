@@ -6,7 +6,8 @@ const testProfile: EmployabilityProfile = {
   tone_profile: "friendly-shopkeeper",
   response_style: "helpful",
   escalation_contact: "System",
-  working_hours: "24/7"
+  working_hours: "24/7",
+  version: 1
 };
 
 const testCases = [

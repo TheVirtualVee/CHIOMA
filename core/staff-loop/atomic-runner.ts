@@ -77,6 +77,24 @@ export async function runAtomicStaffLoop(
       // 2. PROPOSED Stage (Inference)
       assertLegalTransition("LEDGERED", "PROPOSED");
       telemetry.record("INFERENCE_STARTED", { provider: config.provider });
+      
+      const { RealityGovernor } = await import("../reality/governor.js");
+      const governor = new RealityGovernor(tx);
+      
+      // ── TEMPORAL ROUTING ──
+      // Use the provided snapshotId (historical) or resolve the latest active one
+      let snapshotId = input.snapshotId;
+      let activeSnapshotData = null;
+
+      if (snapshotId) {
+        const historical = await governor.getSnapshotById(snapshotId);
+        activeSnapshotData = historical?.data;
+      } else {
+        const active = await governor.getActiveSnapshot(input.tenantId);
+        snapshotId = active?.id;
+        activeSnapshotData = active?.data;
+      }
+      
       const loopResult = await runStaffLoop(input, tx, config, profile);
       telemetry.record("INFERENCE_COMPLETED", { latencyMs: loopResult.latencyMs });
       
@@ -236,28 +254,29 @@ export async function runAtomicStaffLoop(
           contentHash: buildContentHash({ sideEffectId, effectType: action.effectType, targetId: input.senderPhone })
         });
       }
+      
+      // 🧠 COMMITMENT EXTRACTION (Accountability Ledger)
+      // We scan for promises and bind them to the version of reality used today.
+      if (loopResult.decision?.required_actions) {
+        for (const action of loopResult.decision.required_actions) {
+          if (action.type === "PROMISE_MADE" || action.type === "SCHEDULE_FOLLOWUP") {
+            const deadline = new Date();
+            deadline.setMinutes(deadline.getMinutes() + (action.urgency === "URGENT" ? 15 : 60));
 
-      // 🧠 COMMITMENT EXTRACTION
-      // Scan for actions that imply a future obligation (PROMISE_MADE or SCHEDULE_FOLLOWUP)
-      const commitments = loopResult.decision.required_actions.filter(
-        a => a.type === "PROMISE_MADE" || a.type === "SCHEDULE_FOLLOWUP"
-      );
-
-      for (const promise of commitments) {
-        const deadline = new Date();
-        deadline.setMinutes(deadline.getMinutes() + (promise.urgency === "URGENT" ? 15 : 60));
-
-        await tx`
-          INSERT INTO commitments (
-            tenant_id, aggregate_id, type, status, context, 
-            deadline_at, correlation_id, originating_event_id
-          ) VALUES (
-            ${input.tenantId}, ${aggregateId}, ${promise.commitment_type || "GENERAL_FOLLOWUP"}, 
-            'PENDING', ${tx.json({ customer_need: loopResult.decision.customer_need })}, 
-            ${deadline.toISOString()}, ${correlationId}, ${planEvent.eventId}
-          )
-        `;
-        telemetry.record("COMMITMENT_CREATED", { type: promise.commitment_type });
+            await tx`
+              INSERT INTO public.commitments (
+                tenant_id, aggregate_id, type, status, 
+                deadline_at, correlation_id, context, 
+                originating_event_id, snapshot_id
+              ) VALUES (
+                ${input.tenantId}, ${aggregateId}, ${action.type}, 'PENDING', 
+                ${deadline.toISOString()}, ${correlationId}, 
+                ${tx.json(action)}, ${proposalEvent.eventId}, ${snapshotId}
+              )
+            `;
+            telemetry.record("COMMITMENT_CREATED", { type: action.type, snapshotId });
+          }
+        }
       }
 
       // 5. FINALIZED Stage

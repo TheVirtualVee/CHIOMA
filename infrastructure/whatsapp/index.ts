@@ -7,9 +7,15 @@ export async function sendWhatsAppMessage(
   text: string,
   trace?: TraceContext
 ): Promise<void> {
-  const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`;
   const sanitizedTo = to.replace("+", "").trim();
   const contextTag = trace ? ` [execId=${trace.executionId}]` : "";
+  const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`;
+
+  // 🧪 DRY_RUN / SIMULATION MODE
+  if (process.env.WHATSAPP_DRY_RUN === "true" || to === "simulation_user") {
+    console.log(`[WHATSAPP_DRY_RUN]${contextTag} to=${sanitizedTo} body="${text}"`);
+    return;
+  }
 
   console.log(`[WHATSAPP_INFRA] SEND_ATTEMPT${contextTag} to=${sanitizedTo}`);
 
