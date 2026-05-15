@@ -16,7 +16,8 @@ export async function runStaffLoop(
   input: StaffLoopInput,
   sql: any,
   config: { apiKey: string; provider: string },
-  profile: EmployabilityProfile
+  profile: EmployabilityProfile,
+  activeCommitmentContext: string = ""
 ): Promise<StaffLoopResult> {
   const start = Date.now();
   const t = (m: string) => console.log(`[STAFF_LOOP_TRACE] [${Date.now() - start}ms] ${m}`);
@@ -59,17 +60,8 @@ export async function runStaffLoop(
       ? `LOCKED_OPERATIONAL_TRUTH (Confirmed by owner at ${lockedSnapshot.locked_at}):\n${JSON.stringify(lockedSnapshot.snapshot_data)}`
       : "No daily briefing locked for today. Rely on general business knowledge.";
 
-    // ACIL — Active Commitment Injection
-    // Must be called before businessBrief assembly. Failure returns empty string.
-    let activeCommitmentContext = "";
-    try {
-      activeCommitmentContext = await buildActiveCommitmentContext(sql, input);
-      if (activeCommitmentContext) {
-        console.log("[ACIL] COMMITMENT_CONTEXT_INJECTED for", input.tenantId);
-      }
-    } catch (err: unknown) {
-      console.error("[ACIL] UNEXPECTED_ACIL_ERROR:", String(err).slice(0, 120));
-    }
+    // ACIL — Active Commitment Context is now provided by the Atomic Runner
+    // to ensure deterministic execution mode selection.
 
     const lastNeed = governedMemories.find(m => m.key === 'last_customer_need')?.value || "";
     const currentGoal = governedMemories.find(m => m.key === 'current_goal')?.value || "";

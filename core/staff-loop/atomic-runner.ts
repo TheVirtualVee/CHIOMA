@@ -11,6 +11,7 @@ import { processDailyBriefStep } from "../../services/daily-briefing-service/ind
 import { StaffLoopInput, StaffLoopResult, EmployabilityProfile, ExecutionMode } from "../contracts/index.js";
 import { TelemetryManager } from "../telemetry/index.js";
 import { acquireLease, releaseLease } from "../concurrency/index.js";
+import { buildActiveCommitmentContext } from "../commitments/acil.js";
 import { RealityGovernor } from "../reality/governor.js";
 import { deductCredit } from "../billing/gate.js";
 import { runArbiter } from "../arbiter/index.js";
