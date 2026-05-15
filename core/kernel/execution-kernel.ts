@@ -77,8 +77,20 @@ export class ExecutionKernel {
       // Simple greetings are state-neutral. They skip arbitration entirely.
       if (isSimpleGreeting(input.messageText)) {
         telemetry.record("GREETING_BYPASS", { message: input.messageText.slice(0, 20) });
+        
+        // 🧠 THREAD AWARENESS: Check if we should greet or continue
+        let bypassMode = "GREETING_ALLOWED";
+        try {
+          const [state]: any[] = await sql`
+            SELECT 1 FROM public.customer_memory 
+            WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}
+            LIMIT 1
+          `;
+          if (state) bypassMode = "CONTINUATION_ONLY";
+        } catch { /* Default to greeting if DB fails */ }
+
         const greetResult = await runStaffLoopSimplified(
-          { ...input, executionMode: "GREETING_ALLOWED" as any },
+          { ...input, executionMode: bypassMode as any },
           sql, config, telemetry
         );
         monitor.record(greetResult.latencyMs);
@@ -222,7 +234,7 @@ export class ExecutionKernel {
 
   private static degradedFallback(start: number, correlationId: string, customText?: string): StaffLoopResult {
     return {
-      responseText: customText || "I'm having a bit of trouble right now. Please try again later.",
+      responseText: customText || "I'm still pulling that together for you — one moment.",
       responseType: "error_degraded",
       delivered: false,
       latencyMs: Date.now() - start,

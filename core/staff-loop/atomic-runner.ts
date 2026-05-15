@@ -507,7 +507,7 @@ export async function runAtomicStaffLoop(
     }
 
     const fallbackResponse: StaffLoopResult = {
-      responseText: "I'm having a bit of trouble processing that. Let me get someone to help you.",
+      responseText: "I'm still pulling that together for you — one moment.",
       responseType: "error_degraded",
       delivered: false,
       latencyMs: Date.now() - start,
@@ -527,7 +527,7 @@ export async function runAtomicStaffLoop(
     telemetry.record("OUTER_FAULT_BOUNDARY", { error: msg.slice(0, 200) });
     console.error(`[ATOMIC_RUNNER] OUTER_FAULT_BOUNDARY: ${msg}`);
     return {
-      responseText: "I'm having a bit of trouble right now, but I've noted your message. I'll follow up shortly.",
+      responseText: "I'm still pulling that together for you — one moment.",
       responseType: "error_degraded" as const,
       delivered: false,
       latencyMs: Date.now() - start,
