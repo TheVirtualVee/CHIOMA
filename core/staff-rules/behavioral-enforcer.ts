@@ -71,8 +71,6 @@ const GREETING_PATTERNS = [
   /thank you for reaching out[!, ]*/i,
 ];
 
-// AMNESIA_PATTERNS: Words chosen carefully to avoid matching legitimate business language.
-// e.g. 'new session' is excluded — a business may say 'booking a new session for a client'.
 const AMNESIA_PATTERNS = [
   /i am a new assistant/i,
   /how can i help you from scratch/i,
@@ -90,7 +88,6 @@ export function enforceEmployeePsychology(
   const violations: BehavioralViolation[] = [];
   let corrected = response.trim();
 
-  // ── AMNESIA DETECTION (CRITICAL) ───────────────────────────────
   if (executionMode !== "GREETING_ALLOWED") {
     for (const pattern of AMNESIA_PATTERNS) {
       if (pattern.test(corrected)) {
@@ -103,15 +100,8 @@ export function enforceEmployeePsychology(
     }
   }
 
-  // ── COMMITMENT COMPLIANCE (CESM) ───────────────────────────────
-  // SEVERITY: WARNING — intentionally NOT a BLOCK.
-  // Reason: If this were BLOCK, the fallback text also wouldn't mention the goal,
-  // creating an infinite cascade where CHIOMA is permanently silenced mid-session.
-  // WARNING ensures the violation is observable and loggable without killing delivery.
   if (executionMode === "COMMITMENT_RESOLUTION" && currentGoal) {
     const goalTerms = currentGoal.toLowerCase().split(/\s+/).filter(t => t.length > 3);
-    // Only enforce if there are meaningful terms to match against.
-    // An empty goalTerms array (e.g. goal = 'ok') must never trigger a false violation.
     if (goalTerms.length > 0) {
       const mentionsGoal = goalTerms.some(term => corrected.toLowerCase().includes(term));
       if (!mentionsGoal && corrected.length > 0) {
@@ -124,7 +114,6 @@ export function enforceEmployeePsychology(
     }
   }
 
-  // ── GREETING SUPPRESSION (CESM) ─────────────────────────────────
   if (executionMode === "CONTINUATION_ONLY" || executionMode === "COMMITMENT_RESOLUTION") {
     for (const pattern of GREETING_PATTERNS) {
       if (pattern.test(corrected)) {
@@ -134,7 +123,6 @@ export function enforceEmployeePsychology(
           detail: `Greeting detected in ${executionMode} mode. Stripping for continuity.`,
         });
         corrected = corrected.replace(pattern, "").trim();
-        // Capitalize first letter of remaining text
         if (corrected.length > 0) {
           corrected = corrected[0].toUpperCase() + corrected.slice(1);
         }
@@ -254,14 +242,11 @@ export function enforceEmployeePsychology(
   
   let mode: BehavioralMode = "PASS";
   if (blockViolations.length > 0) {
-    // If it's an identity breach, we BLOCK and fallback.
-    // If it's repairable but still has blocks, we attempt REWRITE.
     mode = violations.some(v => v.rule === "IDENTITY_BREACH") ? "BLOCK" : "REWRITE";
   } else if (correctionViolations.length > 0) {
     mode = "REWRITE";
   }
 
-  // LAW_001: IDENTITY_ERASURE FATAL PENALTY
   const identityBreach = violations.some(v => v.rule === "IDENTITY_BREACH");
   const scoreBase = identityBreach ? 0.1 : 1.0;
 

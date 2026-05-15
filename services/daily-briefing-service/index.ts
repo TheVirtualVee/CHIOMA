@@ -40,27 +40,25 @@ export async function processDailyBriefStep(
     
     if (isAffirmative) {
       // 2. Commit to memory (LOCKED snapshot)
-      await sql.begin(async (tx: any) => {
-        await tx`
+      await sql`
           UPDATE public.daily_brief_sessions
           SET status = 'CONFIRMED',
               confirmed_at = NOW()
           WHERE id = ${session.id}
-        `;
+      `;
 
-        // Archive old locked snapshots
-        await tx`
+      // Archive old locked snapshots
+      await sql`
           UPDATE public.business_snapshots
           SET status = 'HISTORICAL'
           WHERE tenant_id = ${tenantId} AND status = 'LOCKED'
-        `;
+      `;
 
-        // Insert new locked snapshot
-        await tx`
+      // Insert new locked snapshot
+      await sql`
           INSERT INTO public.business_snapshots (tenant_id, snapshot_data, status, locked_at)
           VALUES (${tenantId}, ${sql.json(session.parsed_snapshot)}, 'LOCKED', NOW())
-        `;
-      });
+      `;
 
       return {
         handled: true,

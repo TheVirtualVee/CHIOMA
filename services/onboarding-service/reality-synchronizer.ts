@@ -78,31 +78,29 @@ export async function lockReality(sql: any, tenantId: string): Promise<string> {
 
   if (!latest) return "I don't have a pending update to confirm. Send me a briefing first!";
 
-  await sql.begin(async (tx: any) => {
-    // Supersede old locked states
-    await tx`UPDATE business_snapshots SET status = 'SUPERSEDED' WHERE tenant_id = ${tenantId} AND status = 'LOCKED'`;
-    
-    // Lock the new state
-    await tx`
-      UPDATE business_snapshots 
-      SET status = 'LOCKED', locked_at = NOW() 
-      WHERE id = ${latest.id}
-    `;
+  // Supersede old locked states
+  await sql`UPDATE business_snapshots SET status = 'SUPERSEDED' WHERE tenant_id = ${tenantId} AND status = 'LOCKED'`;
+  
+  // Lock the new state
+  await sql`
+    UPDATE business_snapshots 
+    SET status = 'LOCKED', locked_at = NOW() 
+    WHERE id = ${latest.id}
+  `;
 
-    // Update the main profile sync time
-    await tx`
-      UPDATE employer_profiles 
-      SET last_sync_at = NOW(), version = version + 1
-      WHERE tenant_id = ${tenantId}
-    `;
-    
-    // Sync current facts for fast-path retrieval in staff-loop
-    await tx`
-      INSERT INTO business_facts (tenant_id, key, value)
-      VALUES (${tenantId}, 'daily_inventory', ${sql.json(latest.snapshot_data.inventory)})
-      ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value
-    `;
-  });
+  // Update the main profile sync time
+  await sql`
+    UPDATE employer_profiles 
+    SET last_sync_at = NOW(), version = version + 1
+    WHERE tenant_id = ${tenantId}
+  `;
+  
+  // Sync current facts for fast-path retrieval in staff-loop
+  await sql`
+    INSERT INTO business_facts (tenant_id, key, value)
+    VALUES (${tenantId}, 'daily_inventory', ${sql.json(latest.snapshot_data.inventory)})
+    ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value
+  `;
 
   return "Perfect! I've locked in today's business reality. I am now using this state to manage your customer inquiries. 🚀";
 }

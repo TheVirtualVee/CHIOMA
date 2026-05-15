@@ -12,10 +12,6 @@ import { enforceEmployeePsychology } from "../staff-rules/behavioral-enforcer.js
 import { generateStaffReply } from "../../services/response-service/index.js";
 import { enforceMemoryGovernance, createGovernedMemory } from "../memory/governance.js";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PROMPT BUILDER — Separated layers, deterministic ordering
-// ─────────────────────────────────────────────────────────────────────────────
-
 function buildStrategicDirective(
   state: ExecutionState
 ): string {
@@ -70,11 +66,6 @@ function buildSystemBrief(
     ...facts.map(f => `${f.key}: ${JSON.stringify(f.value)}`)
   ].filter(Boolean).join("\n\n");
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STAFF LOOP — Pure cognition executor
-// State is loaded by the Atomic Runner and passed in.
-// ─────────────────────────────────────────────────────────────────────────────
 
 export async function runStaffLoop(
   input: StaffLoopInput,

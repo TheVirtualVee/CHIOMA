@@ -57,3 +57,29 @@ export async function getEventsForTenant(sql: any, tenantId: string, limit: numb
     LIMIT ${limit}
   `;
 }
+export async function deductCredit(
+  sql: any,
+  instanceId: string,
+  tenantId: string,
+  correlationId: string,
+  units: number = 1
+): Promise<void> {
+  const [instance] = await sql`
+    UPDATE public.chioma_instances
+    SET credit_units = credit_units - ${units}
+    WHERE instance_id = ${instanceId} AND credit_units >= ${units}
+    RETURNING credit_units
+  `;
+
+  if (!instance) {
+    throw new Error("BILLING_FAILURE: Insufficient credits or instance not found.");
+  }
+
+  await sql`
+    INSERT INTO public.billing_ledger (
+      tenant_id, instance_id, event_type, credit_delta, balance_after, correlation_id
+    ) VALUES (
+      ${tenantId}, ${instanceId}, 'LLM_DEBIT', ${-units}, ${instance.credit_units}, ${correlationId}
+    )
+  `;
+}

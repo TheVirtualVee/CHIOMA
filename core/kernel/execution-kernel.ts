@@ -6,15 +6,6 @@ import { TelemetryManager } from "../telemetry/index.js";
 import { notifyFounder } from "../founder/control-plane.js";
 import { ExecutionRequest, StaffLoopInput, StaffLoopResult, ExecutionState } from "../contracts/index.js";
 
-/**
- * CHIOMA EXECUTION KERNEL
- * Phase 5 — Execution Resilience & Adaptive Governance
- */
-
-// ── GREETING BYPASS ────────────────────────────────────────────────────
-// These are state-neutral inputs. They must NEVER enter the arbiter or
-// enricher pipeline. Routing them through arbitration adds latency and
-// creates an unnecessary enrichment failure surface.
 const SIMPLE_GREETINGS = new Set([
   "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
   "good day", "howdy", "greetings", "sup", "what's up", "whats up",
@@ -47,10 +38,6 @@ export class ExecutionKernel {
   private static activeExecutions = 0;
   private static MAX_CONCURRENT_EXECUTIONS = 50;
 
-  /**
-   * Main entry point for the CHIOMA execution spine.
-   * Computes the singular ExecutionState invariant before any module is dispatched.
-   */
   static async execute(
     input: Omit<StaffLoopInput, 'state'>,
     sql: any,
@@ -70,7 +57,6 @@ export class ExecutionKernel {
 
       const enrichedInput: StaffLoopInput = { ...input, state };
 
-      // Deterministic dispatch based on computed state
       switch (state.execution.status) {
         case "BLOCKED":
           return this.handleBlocked(state, startTime, input.correlationId);
@@ -94,21 +80,15 @@ export class ExecutionKernel {
     }
   }
 
-  /**
-   * THE MASTER STATE ENGINE
-   * Resolves Identity → Intent → Governance in a single deterministic flow.
-   */
   private static async computeState(
     input: Omit<StaffLoopInput, 'state'>,
     sql: any,
     config: any,
     telemetry: TelemetryManager
   ): Promise<ExecutionState> {
-    // 1. IDENTITY INVARIANT: Resolve canonical sender identity
     const identityId = await getCanonicalIdentity(sql, input.tenantId, input.senderPhone);
     const isResolved = !!input.instanceId;
 
-    // 2. INTENT INVARIANT: Deterministic mode resolution
     const [commitmentData] = await sql`
       SELECT count(*)::int as active_count, 
              EXISTS(SELECT 1 FROM public.commitments WHERE tenant_id = ${input.tenantId} AND aggregate_id = ${`conv_${input.senderPhone}`} AND status = 'PENDING') as has_pending,
@@ -131,7 +111,6 @@ export class ExecutionKernel {
     else if (commitmentData?.has_pending) mode = "COMMITMENT_RESOLUTION";
     else if (commitmentData?.has_memory || !isGreeting) mode = "CONTINUATION_ONLY";
 
-    // 3. EXECUTION INVARIANT: Arbiter governance
     const fingerprint = createHash("sha256")
       .update(input.tenantId + input.instanceId + input.messageText)
       .digest("hex");
@@ -209,11 +188,6 @@ export class ExecutionKernel {
   }
 }
 
-/**
- * Simplified wrapper for the final decision execution path.
- * In a real consolidation, this would absorb the AtomicRunner's core logic.
- */
 async function runStaffLoopSimplified(input: StaffLoopInput, sql: any, config: any, telemetry: TelemetryManager): Promise<StaffLoopResult> {
-    // This calls the hardened runAtomicStaffLoop which we've already stabilized
     return await runAtomicStaffLoop(input, sql, config, telemetry);
 }

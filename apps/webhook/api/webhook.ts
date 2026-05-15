@@ -8,17 +8,11 @@ import { notifyFounder, isFounderNumber } from "../../../core/founder/control-pl
 import { processFounderCommand } from "../../../core/founder/command-engine.js";
 import { ExecutionKernel } from "../../../core/kernel/execution-kernel.js";
 
-/**
- * api/webhook.ts — WhatsApp Cloud API inbound handler.
- * Consolidated via Phase 4 Execution Kernel.
- */
-
 export default async function handler(req: any, res: any) {
   try {
     const workerId = `worker_${(typeof process !== 'undefined' ? process.env?.VERCEL_REGION : 'unknown') || "local"}`;
     const trace = createTraceContext(workerId);
     
-    // 1. WhatsApp Webhook Verification
     if (req.method === "GET") {
       const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
       if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === verifyToken) {
@@ -29,7 +23,6 @@ export default async function handler(req: any, res: any) {
 
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-    // 2. Ingress Identification
     const entry = req.body?.entry?.[0];
     const value = entry?.changes?.[0]?.value;
     const messages = value?.messages;
@@ -44,7 +37,6 @@ export default async function handler(req: any, res: any) {
     const telemetry = new TelemetryManager(messageId, trace.traceId);
     const config = validateConfig();
 
-    // 3. Signature Validation
     const signature = req.headers["x-hub-signature-256"] as string;
     const rawBody = (req as any).rawBody 
       ? (req as any).rawBody.toString() 
@@ -54,8 +46,6 @@ export default async function handler(req: any, res: any) {
       return res.status(401).json({ error: "Invalid signature" });
     }
 
-    // 4. Founder Routing Check
-    // Founder messages bypass ALL normal execution. They go straight to the Command Engine.
     const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
     try {
       if (isFounderNumber(from)) {
@@ -71,11 +61,9 @@ export default async function handler(req: any, res: any) {
         telemetry.complete("FOUNDER_COMMAND_DISPATCHED");
         return res.status(200).json({ ok: true, plane: "FOUNDER_CONTROL" });
       }
-      // 5. Instance Resolution
       const instance = await resolveInstance(sql, phoneNumberId);
       if (!instance) {
         telemetry.record("INSTANCE_NOT_FOUND", { phoneNumberId });
-        // Notify founder of unregistered number — could be a new onboarding attempt
         await notifyFounder(
           {
             type: "ONBOARDING_REQUEST",
@@ -91,7 +79,6 @@ export default async function handler(req: any, res: any) {
       telemetry.setTenant(instance.tenant_id);
       telemetry.setInstance(instance.instance_id);
 
-      // 5. KERNEL EXECUTION (The single decision spine)
       const staffLoopInput = {
         messageId,
         tenantId: instance.tenant_id,
@@ -112,7 +99,6 @@ export default async function handler(req: any, res: any) {
         model: instance.llm_config.model,
       }, telemetry);
 
-      // 6. Response Dispatch
       if (result.responseText) {
         await sendWhatsAppMessage(phoneNumberId, config.WHATSAPP_ACCESS_TOKEN, from, result.responseText, trace);
       }

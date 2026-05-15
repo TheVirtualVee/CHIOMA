@@ -9,29 +9,23 @@ export class SideEffectProcessor {
   }
 
   async claimAndExecute(sql: any): Promise<ExecutionReceipt | null> {
-    const effect = await sql.begin(async (tx: any) => {
-      const [row] = await tx`
-        SELECT * FROM side_effects
-        WHERE status = 'PENDING'
-          AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
-        ORDER BY created_at ASC
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
-      `;
-
-      if (!row) return null;
-
-      await tx`
+    // We attempt to claim an effect directly.
+    const [effect] = await sql`
         UPDATE side_effects
         SET status = 'IN_FLIGHT',
             worker_instance_id = ${this.instanceId},
             attempt_count = attempt_count + 1,
             updated_at = NOW()
-        WHERE side_effect_id = ${row.side_effect_id}
-      `;
-
-      return row as SideEffectRecord;
-    });
+        WHERE side_effect_id = (
+          SELECT side_effect_id FROM side_effects
+          WHERE status = 'PENDING'
+            AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+          ORDER BY created_at ASC
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
+    `;
 
     if (!effect) return null;
 
@@ -70,48 +64,44 @@ export class SideEffectProcessor {
 
     const durationMs = Date.now() - start;
 
-    const receipt = await sql.begin(async (tx: any) => {
-      const [inserted] = await tx`
+    const [receipt] = await sql`
         INSERT INTO execution_receipts (
           side_effect_id, attempt_number, executed_at, outcome,
           external_correlation_id, response_payload, duration_ms, worker_instance_id
         ) VALUES (
           ${effect.sideEffectId}, ${effect.attemptCount + 1}, NOW(), ${outcome},
-          ${externalCorrelationId}, ${tx.json(responsePayload)}, ${durationMs}, ${this.instanceId}
+          ${externalCorrelationId}, ${sql.json(responsePayload)}, ${durationMs}, ${this.instanceId}
         ) RETURNING *
-      `;
+    `;
 
-      if (outcome === "SUCCESS") {
-        await tx`
+    if (outcome === "SUCCESS") {
+      await sql`
           UPDATE side_effects
           SET status = 'SUCCEEDED',
-              execution_receipt_id = ${inserted.receipt_id},
+              execution_receipt_id = ${receipt.receipt_id},
               updated_at = NOW()
           WHERE side_effect_id = ${effect.sideEffectId}
-        `;
-      } else {
-        const nextDelay = computeNextAttemptDelay(effect.attemptCount + 1);
-        if (nextDelay === null) {
-          await tx`
+      `;
+    } else {
+      const nextDelay = computeNextAttemptDelay(effect.attemptCount + 1);
+      if (nextDelay === null) {
+        await sql`
             UPDATE side_effects
             SET status = 'DEAD_LETTERED',
                 dead_letter_at = NOW(),
                 updated_at = NOW()
             WHERE side_effect_id = ${effect.sideEffectId}
-          `;
-        } else {
-          await tx`
+        `;
+      } else {
+        await sql`
             UPDATE side_effects
             SET status = 'FAILED_RETRYABLE',
                 next_attempt_at = NOW() + ${nextDelay / 1000.0} * interval '1 second',
                 updated_at = NOW()
             WHERE side_effect_id = ${effect.sideEffectId}
-          `;
-        }
+        `;
       }
-
-      return inserted as ExecutionReceipt;
-    });
+    }
 
     return receipt;
   }
