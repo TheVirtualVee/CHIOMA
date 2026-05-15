@@ -237,6 +237,29 @@ export async function runAtomicStaffLoop(
         });
       }
 
+      // 🧠 COMMITMENT EXTRACTION
+      // Scan for actions that imply a future obligation (PROMISE_MADE or SCHEDULE_FOLLOWUP)
+      const commitments = loopResult.decision.required_actions.filter(
+        a => a.type === "PROMISE_MADE" || a.type === "SCHEDULE_FOLLOWUP"
+      );
+
+      for (const promise of commitments) {
+        const deadline = new Date();
+        deadline.setMinutes(deadline.getMinutes() + (promise.urgency === "URGENT" ? 15 : 60));
+
+        await tx`
+          INSERT INTO commitments (
+            tenant_id, aggregate_id, type, status, context, 
+            deadline_at, correlation_id, originating_event_id
+          ) VALUES (
+            ${input.tenantId}, ${aggregateId}, ${promise.commitment_type || "GENERAL_FOLLOWUP"}, 
+            'PENDING', ${tx.json({ customer_need: loopResult.decision.customer_need })}, 
+            ${deadline.toISOString()}, ${correlationId}, ${planEvent.eventId}
+          )
+        `;
+        telemetry.record("COMMITMENT_CREATED", { type: promise.commitment_type });
+      }
+
       // 5. FINALIZED Stage
       assertLegalTransition("EXECUTED", "FINALIZED");
       await tx`UPDATE message_ledger SET status = 'COMPLETED', updated_at = NOW() WHERE message_id = ${input.messageId}`;

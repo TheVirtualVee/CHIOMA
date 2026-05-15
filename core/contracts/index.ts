@@ -36,10 +36,11 @@ export type EmployabilityMode =
   | "OFFLINE_ESCALATION_ONLY";
 
 export interface StaffAction {
-  type: "REPLY" | "ESCALATE" | "SCHEDULE_FOLLOWUP" | "IGNORE";
+  type: "REPLY" | "ESCALATE" | "SCHEDULE_FOLLOWUP" | "IGNORE" | "PROMISE_MADE";
   urgency: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   revenue_weight: number;
   need_classification: "REVENUE_NOW" | "REVENUE_SOON" | "NO_REVENUE" | "ESCALATION_REQUIRED";
+  commitment_type?: "AVAILABILITY_LOOKUP" | "PRICING_CLARIFICATION" | "OWNER_CONSULTATION" | "GENERAL_FOLLOWUP";
 }
 
 export interface BusinessDraft {
@@ -69,4 +70,17 @@ export interface StaffDecision {
   source: "LLM" | "RULE_OVERRIDE" | "REPLAY";
   decision_hash: string;
   customer_need: string;
+}
+
+export interface Commitment {
+  id: string;
+  tenantId: string;
+  aggregateId: string;
+  type: string;
+  status: "PENDING" | "RESOLVED" | "EXPIRED" | "ESCALATED";
+  context: any;
+  deadlineAt: string;
+  createdAt: string;
+  resolvedAt?: string;
+  correlationId: string;
 }
