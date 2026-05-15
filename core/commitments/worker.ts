@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { TelemetryManager, createTraceContext } from "../telemetry/index.js";
 import { resolveInstanceByTenant } from "../routing/instance-router.js";
+import { notifyFounder } from "../founder/control-plane.js";
 import { ExecutionKernel } from "../kernel/execution-kernel.js";
 
 /**
@@ -35,6 +36,17 @@ export async function processOverdueCommitments(sql: any, config: { apiKey: stri
     `;
 
     if (claimedCommitments.length === 0) return { processed: 0 };
+
+    // Sync to recovery_queue for observability (non-fatal)
+    for (const commitment of claimedCommitments) {
+      try {
+        await sql`
+          INSERT INTO public.recovery_queue (tenant_id, commitment_id, aggregate_id, status)
+          VALUES (${commitment.tenant_id}, ${commitment.id}, ${commitment.aggregate_id}, 'IN_FLIGHT')
+          ON CONFLICT (commitment_id) DO UPDATE SET status = 'IN_FLIGHT', attempts = recovery_queue.attempts + 1, updated_at = NOW()
+        `;
+      } catch { /* Non-fatal — recovery_queue is observability, not execution */ }
+    }
 
     for (const commitment of claimedCommitments) {
       try {
@@ -72,19 +84,37 @@ export async function processOverdueCommitments(sql: any, config: { apiKey: stri
           WHERE id = ${commitment.id}
         `;
 
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
         await sql`
           UPDATE public.commitments
-          SET status = 'FAILED', lease_expires_at = NULL, last_error = ${err.message}
+          SET status = 'FAILED', lease_expires_at = NULL, last_error = ${errMsg}
           WHERE id = ${commitment.id}
         `;
+
+        // Notify founder if commitment has exceeded max recovery attempts
+        const MAX_RECOVERY_ATTEMPTS = 3;
+        if ((commitment.attempt_count ?? 0) >= MAX_RECOVERY_ATTEMPTS) {
+          const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
+          const token = process.env.WHATSAPP_ACCESS_TOKEN ?? "";
+          notifyFounder(
+            {
+              type: "RECOVERY_FAILURE",
+              tenantId: commitment.tenant_id,
+              summary: `Commitment ${commitment.id} failed after ${commitment.attempt_count} attempts and cannot be automatically recovered.`,
+              detail: { commitmentId: commitment.id, type: commitment.type, error: errMsg.slice(0, 100) }
+            },
+            phoneId, token
+          ).catch((e: unknown) => console.error("[RECOVERY] FOUNDER_NOTIFY_FAILED:", String(e).slice(0,80)));
+        }
       }
     }
 
     return { processed: claimedCommitments.length };
 
-  } catch (outerErr: any) {
-    telemetry.record("RECOVERY_SCAN_CRASHED", { error: outerErr.message });
-    throw outerErr;
+  } catch (outerErr: unknown) {
+    const outerMsg = outerErr instanceof Error ? outerErr.message : String(outerErr);
+    telemetry.record("RECOVERY_SCAN_CRASHED", { error: outerMsg });
+    throw new Error(outerMsg);
   }
 }

@@ -4,6 +4,7 @@ import { createDatabaseClient } from "../../../infrastructure/database/index.js"
 import { sendWhatsAppMessage } from "../../../infrastructure/whatsapp/index.js";
 import { TelemetryManager, createTraceContext } from "../../../core/telemetry/index.js";
 import { resolveInstance } from "../../../core/routing/instance-router.js";
+import { notifyFounder, isFounderNumber } from "../../../core/founder/control-plane.js";
 import { ExecutionKernel } from "../../../core/kernel/execution-kernel.js";
 
 /**
@@ -52,12 +53,32 @@ export default async function handler(req: any, res: any) {
       return res.status(401).json({ error: "Invalid signature" });
     }
 
-    // 4. Instance Resolution
+    // 4. Founder Routing Check
+    // Founder messages are routed to the control plane, NOT the customer execution path.
+    if (isFounderNumber(from)) {
+      console.log("[FOUNDER_CP] FOUNDER_MESSAGE_RECEIVED — routing to control plane");
+      // Future: implement interactive founder dashboard here
+      // For now: acknowledge and log
+      telemetry.record("FOUNDER_MESSAGE_RECEIVED", { from });
+      return res.status(200).json({ ok: true, plane: "FOUNDER_CONTROL" });
+    }
+
+    // 5. Instance Resolution
     const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
     try {
       const instance = await resolveInstance(sql, phoneNumberId);
       if (!instance) {
         telemetry.record("INSTANCE_NOT_FOUND", { phoneNumberId });
+        // Notify founder of unregistered number — could be a new onboarding attempt
+        await notifyFounder(
+          {
+            type: "ONBOARDING_REQUEST",
+            summary: `Unregistered number messaged CHIOMA: ${from}`,
+            detail: { phoneNumberId, messageText: text.slice(0, 80) }
+          },
+          phoneNumberId ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
+          config.WHATSAPP_ACCESS_TOKEN
+        );
         return res.status(200).json({ ok: false, error: "Instance not registered" });
       }
 
@@ -97,9 +118,10 @@ export default async function handler(req: any, res: any) {
       await sql.end();
     }
 
-  } catch (outerErr: any) {
+  } catch (outerErr: unknown) {
     console.error(`[FATAL_INBOUND_CRASH]`, outerErr);
-    return res.status(500).json({ ok: false, error: "Universal Guard Triggered", detail: outerErr.message });
+    const outerMsg = outerErr instanceof Error ? outerErr.message : String(outerErr);
+    return res.status(500).json({ ok: false, error: "Universal Guard Triggered", detail: outerMsg });
   }
 }
 

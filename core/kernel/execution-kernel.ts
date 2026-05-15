@@ -3,6 +3,7 @@ import { runAtomicStaffLoop } from "../staff-loop/atomic-runner.js";
 import { runArbiter } from "../arbiter/index.js";
 import { getCanonicalIdentity } from "../identity/index.js";
 import { TelemetryManager } from "../telemetry/index.js";
+import { notifyFounder } from "../founder/control-plane.js";
 import { ExecutionRequest, StaffLoopInput, StaffLoopResult } from "../contracts/index.js";
 
 /**
@@ -111,9 +112,46 @@ export class ExecutionKernel {
 
       if (verdict.outcome === 'BLOCK_RESPONSE') {
         const isConflict = verdict.controllerTriggered === 'Gate0_Arbitration';
+        const isBillingBlock = verdict.controllerTriggered === 'Gate1_Billing';
+
+        // Persist arbiter audit — non-fatal
+        try {
+          await sql`
+            INSERT INTO public.arbiter_audits
+              (tenant_id, instance_id, message_id, correlation_id, outcome,
+               controller_triggered, reason, gate_trace, latency_ms)
+            VALUES (
+              ${input.tenantId}, ${input.instanceId ?? null}, ${input.messageId},
+              ${input.correlationId}, ${verdict.outcome},
+              ${verdict.controllerTriggered}, ${verdict.reason},
+              ${sql.json(verdict.gateTrace)}, ${Date.now() - startTime}
+            )
+          `;
+        } catch (auditErr: unknown) {
+          console.error("[KERNEL] ARBITER_AUDIT_FAILED:", String(auditErr).slice(0, 80));
+        }
+
+        // Notify founder on billing exhaustion
+        if (isBillingBlock) {
+          const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
+          const token = process.env.WHATSAPP_ACCESS_TOKEN ?? "";
+          notifyFounder(
+            {
+              type: "BILLING_EXHAUSTED",
+              tenantId: input.tenantId,
+              instanceId: input.instanceId,
+              summary: `Tenant ${input.tenantId} ran out of credits. Messages are blocked.`,
+              detail: { reason: verdict.reason, controllerTriggered: verdict.controllerTriggered }
+            },
+            phoneId, token
+          ).catch((e: unknown) => console.error("[KERNEL] FOUNDER_NOTIFY_FAILED:", String(e).slice(0,80)));
+        }
+
         const result = {
           responseText: isConflict 
             ? "I'm already working on your request. Just a moment!"
+            : isBillingBlock
+            ? "Your CHIOMA service requires a top-up to continue. Please contact your business owner."
             : "Your account requires attention. Please contact support.",
           responseType: "conversation" as const,
           delivered: false,
