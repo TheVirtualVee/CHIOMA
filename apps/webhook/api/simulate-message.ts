@@ -10,6 +10,13 @@ import { resolveInstanceByTenant } from "../../../core/routing/instance-router.j
  */
 
 export default async function handler(req: any, res: any) {
+  // P0: Admin gate — this endpoint is NOT for production customer traffic
+  const adminKey = process.env.CHIOMA_ADMIN_KEY;
+  const providedKey = req.headers["x-admin-key"] as string | undefined;
+  if (!adminKey || providedKey !== adminKey) {
+    return res.status(401).json({ error: "Unauthorized: simulate-message requires x-admin-key header" });
+  }
+
   const workerId = `worker_sim_${process.env.VERCEL_REGION || "local"}`;
   const trace = createTraceContext(workerId);
   

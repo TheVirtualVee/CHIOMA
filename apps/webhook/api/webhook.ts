@@ -94,24 +94,38 @@ export default async function handler(req: any, res: any) {
         instance,
       };
 
-      const result = await ExecutionKernel.execute(staffLoopInput, sql, {
-        apiKey: config.LLM_API_KEY,
-        provider: instance.llm_config.provider as any,
-        model: instance.llm_config.model,
-      }, telemetry);
+      // P0: Return 200 to Meta IMMEDIATELY before LLM inference.
+      // Meta requires 200 within 20 seconds. LLM can take 8-15s.
+      // Returning after inference guarantees timeout → Meta retry storm.
+      // The function continues executing after res.json() in Vercel Node runtime.
+      res.status(200).json({ ok: true, traceId: trace.traceId });
 
-      if (result.deliveryContract) {
-        const deliveryConfig = {
-          phoneNumberId: phoneNumberId,
-          accessToken: config.WHATSAPP_ACCESS_TOKEN
-        };
-        await DeliveryGuaranteeLayer.execute(result.deliveryContract, sql, deliveryConfig, telemetry);
-      } else {
-        telemetry.record("DGL_INVARIANT_VIOLATION", { reason: "MISSING_CONTRACT" });
+      // Async execution after 200 already sent — Meta will not retry
+      try {
+        const result = await ExecutionKernel.execute(staffLoopInput, sql, {
+          apiKey: config.LLM_API_KEY,
+          provider: instance.llm_config.provider as any,
+          model: instance.llm_config.model,
+        }, telemetry);
+
+        if (result.deliveryContract) {
+          const deliveryConfig = {
+            phoneNumberId: phoneNumberId,
+            accessToken: config.WHATSAPP_ACCESS_TOKEN
+          };
+          await DeliveryGuaranteeLayer.execute(result.deliveryContract, sql, deliveryConfig, telemetry);
+        } else {
+          telemetry.record("DGL_INVARIANT_VIOLATION", { reason: "MISSING_CONTRACT" });
+          console.error("[WEBHOOK] DGL_INVARIANT_VIOLATION: kernel returned no delivery contract");
+        }
+
+        telemetry.complete("COMPLETED");
+      } catch (execErr: unknown) {
+        const execMsg = execErr instanceof Error ? execErr.message : String(execErr);
+        console.error("[WEBHOOK] ASYNC_EXECUTION_FAILED:", execMsg);
+        telemetry.record("ASYNC_EXECUTION_FAILED", { error: execMsg.slice(0, 120) });
+        // 200 already sent — log for recovery worker to pick up
       }
-
-      telemetry.complete("COMPLETED");
-      return res.status(200).json({ ok: true, traceId: trace.traceId });
 
     } finally {
       await sql.end();

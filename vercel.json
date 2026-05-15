@@ -61,10 +61,42 @@
     }
   ],
   "routes": [
-    { "src": "/api/health",           "dest": "apps/webhook/api/health.ts" },
-    { "src": "/api/webhook",          "dest": "apps/webhook/api/webhook.ts" },
-    { "src": "/api/simulate-message", "dest": "apps/webhook/api/simulate-message.ts" },
-    { "src": "/api/debug-loop",       "dest": "apps/webhook/api/debug-loop.ts" },
-    { "src": "/api/ping",             "dest": "apps/webhook/api/ping.ts" }
+    {
+      "src": "/api/health",
+      "dest": "apps/webhook/api/health.ts"
+    },
+    {
+      "src": "/api/webhook",
+      "dest": "apps/webhook/api/webhook.ts"
+    },
+    {
+      "src": "/api/simulate-message",
+      "dest": "apps/webhook/api/simulate-message.ts"
+    },
+    {
+      "src": "/api/debug-loop",
+      "dest": "apps/webhook/api/debug-loop.ts"
+    },
+    {
+      "src": "/api/recovery-cron",
+      "dest": "apps/webhook/api/recovery-cron.ts"
+    }
+  ],
+  "functions": {
+    "apps/webhook/api/webhook.ts": {
+      "maxDuration": 60
+    },
+    "apps/webhook/api/recovery-cron.ts": {
+      "maxDuration": 60
+    },
+    "apps/webhook/api/simulate-message.ts": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/recovery-cron",
+      "schedule": "*/1 * * * *"
+    }
   ]
 }
