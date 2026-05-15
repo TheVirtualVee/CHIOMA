@@ -77,10 +77,12 @@ export interface Commitment {
   tenantId: string;
   aggregateId: string;
   type: string;
-  status: "PENDING" | "RESOLVED" | "EXPIRED" | "ESCALATED";
+  status: "PENDING" | "IN_PROGRESS" | "RESOLVED" | "EXPIRED" | "ESCALATED" | "FAILED";
   context: any;
   deadlineAt: string;
   createdAt: string;
   resolvedAt?: string;
   correlationId: string;
+  workerId?: string;
+  leaseExpiresAt?: string;
 }

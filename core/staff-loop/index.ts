@@ -31,10 +31,12 @@ export async function runStaffLoop(
     ];
     const governedMemories = enforceMemoryGovernance(rawMemories);
 
+    const isRecovery = input.messageText.includes("[SYSTEM_RECOVERY_TRIGGER]");
     const businessBrief = [
       `Business Knowledge: Last goal was ${governedMemories.find(m => m.key === 'current_goal')?.value || 'none'}`,
+      isRecovery ? "CRITICAL: You are recovering an overdue commitment. Do NOT sound robotic. Acknowledge the delay and provide the promised update or escalate if still unknown." : "",
       ...facts.map((f: { key: string; value: any }) => `${f.key}: ${JSON.stringify(f.value)}`)
-    ].join("\n");
+    ].filter(Boolean).join("\n");
 
     t("LLM_INVOCATION_START");
     const proposed = await generateStaffReply(input.messageText, businessBrief, profile, config);
