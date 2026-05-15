@@ -4,7 +4,7 @@ import { runArbiter } from "../arbiter/index.js";
 import { getCanonicalIdentity } from "../identity/index.js";
 import { TelemetryManager } from "../telemetry/index.js";
 import { notifyFounder } from "../founder/control-plane.js";
-import { ExecutionRequest, StaffLoopInput, StaffLoopResult } from "../contracts/index.js";
+import { ExecutionRequest, StaffLoopInput, StaffLoopResult, ExecutionState } from "../contracts/index.js";
 
 /**
  * CHIOMA EXECUTION KERNEL
@@ -45,196 +45,162 @@ const monitor = new LoadMonitor();
 
 export class ExecutionKernel {
   private static activeExecutions = 0;
-  private static MAX_CONCURRENT_EXECUTIONS = 50; // Initial cap
-  private static LATENCY_THRESHOLD_MS = 15000; // 15s P95 target
+  private static MAX_CONCURRENT_EXECUTIONS = 50;
 
+  /**
+   * Main entry point for the CHIOMA execution spine.
+   * Computes the singular ExecutionState invariant before any module is dispatched.
+   */
   static async execute(
-    input: StaffLoopInput,
+    input: Omit<StaffLoopInput, 'state'>,
     sql: any,
     config: { apiKey: string; provider: string; model: string },
     telemetry: TelemetryManager
   ): Promise<StaffLoopResult> {
     const startTime = Date.now();
-    const breakdown: any = {};
-    
-    // 1. ADAPTIVE BUDGET GOVERNOR
-    const avgLatency = monitor.getAverage();
-    if (avgLatency > this.LATENCY_THRESHOLD_MS && this.MAX_CONCURRENT_EXECUTIONS > 5) {
-      this.MAX_CONCURRENT_EXECUTIONS -= 1; // Back off
-      console.warn(`[KERNEL] ADAPTIVE_BACKOFF: Lowering budget to ${this.MAX_CONCURRENT_EXECUTIONS} due to latency (${avgLatency}ms)`);
-    } else if (avgLatency < (this.LATENCY_THRESHOLD_MS / 2) && this.MAX_CONCURRENT_EXECUTIONS < 100) {
-      this.MAX_CONCURRENT_EXECUTIONS += 1; // Scale up
-    }
-
-    if (this.activeExecutions >= this.MAX_CONCURRENT_EXECUTIONS) {
-      telemetry.record("SYSTEM_CONGESTED", { active: this.activeExecutions, cap: this.MAX_CONCURRENT_EXECUTIONS });
-      return this.degradedFallback(startTime, input.correlationId, "System is under heavy load. Please try again in a moment.");
-    }
-
     this.activeExecutions++;
+
     try {
-    // 2. GREETING BYPASS — short-circuit before arbiter
-      // Simple greetings are state-neutral. They skip arbitration entirely.
-      if (isSimpleGreeting(input.messageText)) {
-        telemetry.record("GREETING_BYPASS", { message: input.messageText.slice(0, 20) });
-        
-        // 🧠 THREAD AWARENESS: Check if we should greet or continue
-        let bypassMode = "GREETING_ALLOWED";
-        try {
-          const [state]: any[] = await sql`
-            SELECT 1 FROM public.customer_memory 
-            WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}
-            LIMIT 1
-          `;
-          if (state) bypassMode = "CONTINUATION_ONLY";
-        } catch { /* Default to greeting if DB fails */ }
+      const state = await this.computeState(input, sql, config, telemetry);
+      telemetry.record("STATE_COMPUTED", { 
+        status: state.execution.status, 
+        mode: state.intent.mode,
+        identity: state.identity.identityId 
+      });
 
-        const greetResult = await runStaffLoopSimplified(
-          { ...input, executionMode: bypassMode as any },
-          sql, config, telemetry
-        );
-        monitor.record(greetResult.latencyMs);
-        return { ...greetResult, latencyBreakdown: { totalMs: Date.now() - startTime } };
+      const enrichedInput: StaffLoopInput = { ...input, state };
+
+      // Deterministic dispatch based on computed state
+      switch (state.execution.status) {
+        case "BLOCKED":
+          return this.handleBlocked(state, startTime, input.correlationId);
+
+        case "DEGRADED":
+          return this.degradedFallback(startTime, input.correlationId, state.execution.reason);
+
+        case "READY":
+        default:
+          const result = await runAtomicStaffLoop(enrichedInput, sql, config, telemetry);
+          return {
+            ...result,
+            latencyBreakdown: { totalMs: Date.now() - startTime }
+          };
       }
-
-      // 3. IDENTITY CANONICALIZATION
-      const identityStart = Date.now();
-      const identityId = await getCanonicalIdentity(sql, input.tenantId, input.senderPhone);
-      breakdown.identityMs = Date.now() - identityStart;
-      telemetry.record("IDENTITY_RESOLVED", { identityId });
-
-      // 4. SCHEDULER ARBITRATION
-      const arbStart = Date.now();
-      const aggregateId = `conv_${input.senderPhone}`;
-      const [activeLease] = await sql`
-        SELECT worker_id FROM public.concurrency_leases 
-        WHERE aggregate_id = ${aggregateId} 
-          AND expires_at > NOW()
-          AND worker_id != ${input.traceContext?.workerId ?? 'unknown'}
-        LIMIT 1
-      `;
-
-      const [commitmentData] = await sql`
-        SELECT count(*)::int as active_count, 
-               EXISTS(SELECT 1 FROM public.commitments WHERE tenant_id = ${input.tenantId} AND aggregate_id = ${aggregateId} AND status = 'PENDING') as has_pending
-        FROM public.commitments 
-        WHERE tenant_id = ${input.tenantId} 
-          AND aggregate_id = ${aggregateId} 
-          AND status = 'PENDING'
-      `;
-
-      const normalizedBody = (input.messageText || "").trim().toLowerCase();
-      const fingerprint = createHash("sha256")
-        .update(input.tenantId + input.instanceId + (input.messageId || "internal") + normalizedBody)
-        .digest("hex");
-
-      const arbiterRequest: ExecutionRequest = {
-        tenantId: input.tenantId,
-        instanceId: input.instanceId,
-        triggeredBy: input.channel === 'simulation' ? 'commitment_recovery' : 'whatsapp_message',
-        commitmentPending: commitmentData?.has_pending ?? false,
-        activeCommitmentCount: commitmentData?.active_count ?? 0,
-        creditBalance: input.instance?.credit_units ?? 0,
-        creditRequired: 1,
-        tenantStatus: (input.instance?.billing_state.toLowerCase() as any) || "active",
-        safetyFlags: [],
-        requestedAt: Date.now(),
-        fingerprint,
-        identityId,
-        schedulerConflict: !!activeLease
-      };
-
-      // 4. GOVERNANCE ARBITRATION
-      const verdict = await runArbiter(arbiterRequest, sql, config.apiKey);
-      breakdown.arbitrationMs = Date.now() - arbStart;
-      telemetry.record("KERNEL_ARBITRATION_COMPLETE", { outcome: verdict.outcome, trace: verdict.gateTrace });
-
-      if (verdict.outcome === 'BLOCK_RESPONSE') {
-        const isConflict = verdict.controllerTriggered === 'Gate0_Arbitration';
-        const isBillingBlock = verdict.controllerTriggered === 'Gate1_Billing';
-
-        // Persist arbiter audit — non-fatal
-        try {
-          await sql`
-            INSERT INTO public.arbiter_audits
-              (tenant_id, instance_id, message_id, correlation_id, outcome,
-               controller_triggered, reason, gate_trace, latency_ms)
-            VALUES (
-              ${input.tenantId}, ${input.instanceId ?? null}, ${input.messageId},
-              ${input.correlationId}, ${verdict.outcome},
-              ${verdict.controllerTriggered}, ${verdict.reason},
-              ${sql.json(verdict.gateTrace)}, ${Date.now() - startTime}
-            )
-          `;
-        } catch (auditErr: unknown) {
-          console.error("[KERNEL] ARBITER_AUDIT_FAILED:", String(auditErr).slice(0, 80));
-        }
-
-        // Notify founder on billing exhaustion
-        if (isBillingBlock) {
-          const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
-          const token = process.env.WHATSAPP_ACCESS_TOKEN ?? "";
-          notifyFounder(
-            {
-              type: "BILLING_EXHAUSTED",
-              tenantId: input.tenantId,
-              instanceId: input.instanceId,
-              summary: `Tenant ${input.tenantId} ran out of credits. Messages are blocked.`,
-              detail: { reason: verdict.reason, controllerTriggered: verdict.controllerTriggered }
-            },
-            phoneId, token
-          ).catch((e: unknown) => console.error("[KERNEL] FOUNDER_NOTIFY_FAILED:", String(e).slice(0,80)));
-        }
-
-        const result = {
-          responseText: isConflict 
-            ? "I'm already working on your request. Just a moment!"
-            : isBillingBlock
-            ? "Your CHIOMA service requires a top-up to continue. Please contact your business owner."
-            : "Your account requires attention. Please contact support.",
-          responseType: "conversation" as const,
-          delivered: false,
-          latencyMs: Date.now() - startTime,
-          correlationId: input.correlationId,
-          latencyBreakdown: { ...breakdown, totalMs: Date.now() - startTime }
-        };
-        monitor.record(result.latencyMs);
-        return result;
-      }
-
-      if (verdict.outcome === 'DEGRADE_RESPONSE') {
-        const result = this.degradedFallback(startTime, input.correlationId);
-        monitor.record(result.latencyMs);
-        return result;
-      }
-
-      // 5. ATOMIC EXECUTION
-      const inferenceStart = Date.now();
-      const enrichedInput = {
-        ...input,
-        messageText: input.messageText + (verdict.contextOverride ? `\n\n[KERNEL_OVERRIDE]: ${verdict.contextOverride}` : "")
-      };
-
-      const result = await runStaffLoopSimplified(enrichedInput, sql, config, telemetry);
-      breakdown.inferenceMs = Date.now() - inferenceStart;
-      
-      const finalResult = {
-        ...result,
-        latencyBreakdown: { ...breakdown, totalMs: Date.now() - startTime }
-      };
-      
-      monitor.record(finalResult.latencyMs);
-      return finalResult;
-
+    } catch (err: any) {
+      telemetry.record("KERNEL_PANIC", { error: err.message });
+      return this.degradedFallback(startTime, input.correlationId, "INTERNAL_KERNEL_FAULT");
     } finally {
       this.activeExecutions--;
     }
   }
 
+  /**
+   * THE MASTER STATE ENGINE
+   * Resolves Identity → Intent → Governance in a single deterministic flow.
+   */
+  private static async computeState(
+    input: Omit<StaffLoopInput, 'state'>,
+    sql: any,
+    config: any,
+    telemetry: TelemetryManager
+  ): Promise<ExecutionState> {
+    // 1. IDENTITY INVARIANT: Resolve canonical sender identity
+    const identityId = await getCanonicalIdentity(sql, input.tenantId, input.senderPhone);
+    const isResolved = !!input.instanceId;
 
-  private static degradedFallback(start: number, correlationId: string, customText?: string): StaffLoopResult {
+    // 2. INTENT INVARIANT: Deterministic mode resolution
+    const [commitmentData] = await sql`
+      SELECT count(*)::int as active_count, 
+             EXISTS(SELECT 1 FROM public.commitments WHERE tenant_id = ${input.tenantId} AND aggregate_id = ${`conv_${input.senderPhone}`} AND status = 'PENDING') as has_pending,
+             EXISTS(SELECT 1 FROM public.customer_memory WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}) as has_memory
+      FROM public.commitments 
+      WHERE tenant_id = ${input.tenantId} AND aggregate_id = ${`conv_${input.senderPhone}`} AND status = 'PENDING'
+    `;
+
+    const [onboardingStatus] = await sql`SELECT onboarding_completed FROM employer_profiles WHERE tenant_id = ${input.tenantId}`;
+    const needsOnboarding = onboardingStatus && !onboardingStatus.onboarding_completed;
+    
+    const isBriefCommand = input.messageText.toLowerCase().trim() === "/daily brief";
+    const [activeBriefSession] = await sql`SELECT 1 FROM public.daily_brief_sessions WHERE tenant_id = ${input.tenantId} AND status = 'AWAITING_INPUT' LIMIT 1`;
+
+    const isGreeting = isSimpleGreeting(input.messageText);
+    let mode: ExecutionState['intent']['mode'] = "GREETING_ALLOWED";
+
+    if (needsOnboarding) mode = "ONBOARDING";
+    else if (isBriefCommand || activeBriefSession) mode = "DAILY_BRIEF";
+    else if (commitmentData?.has_pending) mode = "COMMITMENT_RESOLUTION";
+    else if (commitmentData?.has_memory || !isGreeting) mode = "CONTINUATION_ONLY";
+
+    // 3. EXECUTION INVARIANT: Arbiter governance
+    const fingerprint = createHash("sha256")
+      .update(input.tenantId + input.instanceId + input.messageText)
+      .digest("hex");
+
+    const arbiterRequest: ExecutionRequest = {
+      tenantId: input.tenantId,
+      instanceId: input.instanceId,
+      triggeredBy: input.channel === 'simulation' ? 'commitment_recovery' : 'whatsapp_message',
+      commitmentPending: commitmentData?.has_pending ?? false,
+      activeCommitmentCount: commitmentData?.active_count ?? 0,
+      creditBalance: input.instance?.credit_units ?? 0,
+      creditRequired: 1,
+      tenantStatus: (input.instance?.billing_state.toLowerCase() as any) || "active",
+      safetyFlags: [],
+      requestedAt: Date.now(),
+      fingerprint,
+      identityId,
+      schedulerConflict: false
+    };
+
+    const verdict = await runArbiter(arbiterRequest, sql, config.apiKey);
+
+    let status: ExecutionState['execution']['status'] = "READY";
+    if (verdict.outcome === 'BLOCK_RESPONSE') status = "BLOCKED";
+    else if (verdict.outcome === 'DEGRADE_RESPONSE' || this.activeExecutions > this.MAX_CONCURRENT_EXECUTIONS) {
+      status = "DEGRADED";
+    }
+
     return {
-      responseText: customText || "I'm still pulling that together for you — one moment.",
+      identity: { 
+        tenantId: input.tenantId, 
+        instanceId: input.instanceId, 
+        isResolved,
+        identityId 
+      },
+      intent: { 
+        active: commitmentData?.has_memory || commitmentData?.has_pending,
+        mode,
+        currentGoal: null, 
+        lastUserNeed: null 
+      },
+      execution: { 
+        status, 
+        reason: verdict.reason || null,
+        controllerTriggered: verdict.controllerTriggered,
+        fingerprint,
+        contextOverride: verdict.contextOverride,
+        recoveryPayload: verdict.recoveryPayload
+      }
+    };
+  }
+
+  private static handleBlocked(state: ExecutionState, start: number, correlationId: string): StaffLoopResult {
+    const text = state.execution.reason === 'INSUFFICIENT_CREDITS'
+      ? "Your CHIOMA service requires a top-up to continue. Please contact your business owner."
+      : "Your account requires attention. Please contact support.";
+    
+    return {
+      responseText: text,
+      responseType: "conversation",
+      delivered: false,
+      latencyMs: Date.now() - start,
+      correlationId
+    };
+  }
+
+  private static degradedFallback(start: number, correlationId: string, reason?: string | null): StaffLoopResult {
+    return {
+      responseText: "I'm still pulling that together for you — one moment.",
       responseType: "error_degraded",
       delivered: false,
       latencyMs: Date.now() - start,

@@ -1,4 +1,7 @@
-import { TraceContext } from "./telemetry.js";
+/**
+ * CHIOMA EXECUTION CONTRACTS
+ * The single source of truth for runtime types and structures.
+ */
 
 export type ChiomaInstance = {
   instance_id: string;
@@ -15,10 +18,38 @@ export type ChiomaInstance = {
   memory_namespace: string;
 };
 
-export type ExecutionMode = 
-  | "GREETING_ALLOWED" 
-  | "CONTINUATION_ONLY" 
-  | "COMMITMENT_RESOLUTION";
+/**
+ * EXECUTION STATE CONTRACT (THE INVARIANT ANCHOR)
+ * This is the singular source of truth for a single conversation turn.
+ * Every module MUST depend on this object for context.
+ */
+export type ExecutionState = {
+  // 1. IDENTITY INVARIANT: Every request must resolve to a valid execution identity.
+  identity: {
+    tenantId: string;
+    instanceId: string;
+    isResolved: boolean;
+    identityId: string; // The canonical ID for the sender
+  };
+
+  // 2. INTENT INVARIANT: Every request must continue or initialize an intent.
+  intent: {
+    active: boolean;
+    mode: "GREETING_ALLOWED" | "CONTINUATION_ONLY" | "COMMITMENT_RESOLUTION" | "ONBOARDING" | "DAILY_BRIEF";
+    currentGoal: string | null;
+    lastUserNeed: string | null;
+  };
+
+  // 3. EXECUTION INVARIANT: Every request must resolve into a deterministic outcome.
+  execution: {
+    status: "READY" | "DEGRADED" | "BLOCKED";
+    reason: string | null;
+    controllerTriggered: string; // Which gate/logic decided this status
+    fingerprint: string; // Deduplication/Idempotency key
+    contextOverride?: string; // Optional context enrichment from Arbiter
+    recoveryPayload?: any; // Optional recovery data from Arbiter
+  };
+};
 
 export interface StaffLoopInput {
   messageId: string;
@@ -30,19 +61,19 @@ export interface StaffLoopInput {
   causationId: string;
   eventId: string;
   channel: "whatsapp" | "sms" | "web" | "simulation";
+  state: ExecutionState; 
   traceContext?: {
     traceId: string;
     workerId: string;
     executionId?: string;
   };
-  snapshotId?: string; // Optional context from a specific snapshot
+  snapshotId?: string;
   instance?: ChiomaInstance;
-  executionMode?: ExecutionMode; // ← NEW: Structural constraint
 }
 
 export interface StaffLoopResult {
   responseText: string;
-  responseType: 'conversation' | 'error_degraded' | 'internal_failure';
+  responseType: 'conversation' | 'error_degraded' | 'internal_failure' | 'onboarding';
   delivered: boolean;
   latencyMs: number;
   correlationId: string;

@@ -17,14 +17,13 @@ export function evaluateGates(request: ExecutionRequest): {
 } {
   const gateTrace: GateTraceEntry[] = [];
 
-  // Gate 0: Scheduler Arbitration (Phase 3.3 Reality Stability)
+  // Scheduler Arbitration
   if (request.schedulerConflict) {
     gateTrace.push({ gate: 'scheduler_arbitration', decision: 'blocked', reason: 'COMPETING_SCHEDULER_ACTIVE' });
     return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate0_Arbitration', reason: 'COMPETING_SCHEDULER_ACTIVE', gateTrace };
   }
 
-  // Gate 1: Billing Hard Block
-  // SAFETY: Use explicit ?? 0 — undefined credits must never miscalculate as a block.
+  // Billing & Tenant Status
   const credits = request.creditBalance ?? 0;
   const billingPassed = !(credits < request.creditRequired && request.tenantStatus !== 'active');
   gateTrace.push({ gate: 'billing', decision: billingPassed ? 'passed' : 'blocked', reason: billingPassed ? undefined : 'INSUFFICIENT_CREDITS' });
@@ -32,41 +31,36 @@ export function evaluateGates(request: ExecutionRequest): {
      return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate1_Billing', reason: 'INSUFFICIENT_CREDITS', gateTrace };
   }
 
-  // Gate 2: Tenant Validity
   const tenantValid = !['suspended', 'trial_expired'].includes(request.tenantStatus);
   gateTrace.push({ gate: 'tenant', decision: tenantValid ? 'passed' : 'blocked', reason: tenantValid ? undefined : `TENANT_STATUS_${request.tenantStatus.toUpperCase()}` });
   if (!tenantValid) {
     return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate2_TenantValidity', reason: `TENANT_STATUS_${request.tenantStatus.toUpperCase()}`, gateTrace };
   }
 
-  // Gate 3: Safety Gate
+  // Safety
   const safetyPassed = request.safetyFlags.length === 0;
   gateTrace.push({ gate: 'safety', decision: safetyPassed ? 'passed' : 'blocked', reason: safetyPassed ? undefined : `SAFETY_VIOLATION: ${request.safetyFlags.join(', ')}` });
   if (!safetyPassed) {
     return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate3_Safety', reason: `SAFETY_VIOLATION: ${request.safetyFlags.join(', ')}`, gateTrace };
   }
 
-  // Gate 4: Commitment Throttling (Phase 3.2 Hardening)
-  // Max 1 active commitment per 10-minute window (enforced by checking current active count)
+  // Commitment Throttling & Priority
   if (request.commitmentPending && request.activeCommitmentCount >= 1) {
     gateTrace.push({ gate: 'commitment_throttling', decision: 'triggered', reason: 'MAX_ACTIVE_COMMITMENTS_EXCEEDED' });
-    // If throttled, we treat it as a normal ALLOW without priority override to prevent worker DoS
     return { outcome: 'ALLOW', controllerTriggered: 'Gate4_Throttling', reason: 'COMMITMENT_THROTTLED', gateTrace };
   }
 
-  // Gate 5: Commitment Override
   if (request.commitmentPending) {
     gateTrace.push({ gate: 'commitment', decision: 'triggered', reason: 'PENDING_COMMITMENT_PRIORITY' });
     return { outcome: 'ALLOW_WITH_CONTEXT_OVERRIDE', controllerTriggered: 'Gate5_Commitment', reason: 'PENDING_COMMITMENT_PRIORITY', gateTrace };
   }
 
-  // Gate 6: Business Logic Routing
+  // Business Routing & Default
   if (['abm_schedule', 'daily_brief'].includes(request.triggeredBy)) {
     gateTrace.push({ gate: 'business_routing', decision: 'passed', reason: `ROUTED_BY_${request.triggeredBy.toUpperCase()}` });
     return { outcome: 'ALLOW', controllerTriggered: 'Gate6_BusinessLogic', reason: `ROUTED_BY_${request.triggeredBy.toUpperCase()}`, gateTrace };
   }
 
-  // Gate 7: Default
   gateTrace.push({ gate: 'default', decision: 'passed', reason: 'ALL_GATES_PASSED' });
   return { outcome: 'ALLOW', controllerTriggered: 'Gate7_Default', reason: 'ALL_GATES_PASSED', gateTrace };
 }
@@ -134,19 +128,17 @@ Include contextOverride (Max 1-3 sentences, business-safe only) or recoveryPaylo
     const data = await response.json() as any;
     const rawEnriched = JSON.parse(data.choices[0].message.content);
 
-    // Strict schema enforcement
     const validated = EnrichmentSchema.safeParse(rawEnriched);
     if (!validated.success) {
       console.warn("[ARBITER] ENRICHMENT_SCHEMA_VIOLATION", validated.error.issues);
       return {
         ...baseVerdict,
-        outcome: 'DEGRADE_RESPONSE',
+        outcome: gateResult.outcome === 'ALLOW_WITH_CONTEXT_OVERRIDE' ? 'ALLOW' : gateResult.outcome,
         controllerTriggered: 'gemini_schema_fallback',
         reason: 'ENRICHMENT_SCHEMA_INVALID'
       };
     }
 
-    // Hard constraint: Immutability of outcome and fingerprint
     return {
       ...baseVerdict,
       contextOverride: validated.data.contextOverride,
@@ -155,9 +147,6 @@ Include contextOverride (Max 1-3 sentences, business-safe only) or recoveryPaylo
     };
 
   } catch (err) {
-    // CRITICAL: Enrichment failure must NEVER produce DEGRADE_RESPONSE.
-    // A Groq timeout during enrichment should not kill a customer interaction.
-    // Fall back to the pre-computed base verdict with ALLOW outcome.
     console.error("[ARBITER] ENRICHMENT_FAILED — falling back to base verdict:", err);
     return {
       ...baseVerdict,

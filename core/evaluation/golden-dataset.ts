@@ -1,4 +1,4 @@
-import { StaffLoopInput, EmployabilityProfile, StaffDecision } from "../contracts/index.js";
+import { StaffLoopInput, EmployabilityProfile, StaffDecision, ExecutionState } from "../contracts/index.js";
 
 export interface GoldenScenario {
   id: string;
@@ -33,7 +33,12 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       causationId: "caus_001",
       eventId: "ev_001",
       channel: "simulation",
-      traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" }
+      traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" },
+      state: {
+        identity: { tenantId: "tenant_001", instanceId: "inst_golden", isResolved: true, identityId: "ident_golden" },
+        intent: { active: true, lastUserNeed: "pricing", currentGoal: "quote weave", mode: "CONTINUATION_ONLY" },
+        execution: { status: "READY", reason: null, controllerTriggered: "mock", fingerprint: "mock" }
+      }
     },
     profile: {
       business_name: "Chioma Beauty Hub",
@@ -64,7 +69,12 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       causationId: "caus_002",
       eventId: "ev_002",
       channel: "simulation",
-      traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" }
+      traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" },
+      state: {
+        identity: { tenantId: "tenant_001", instanceId: "inst_golden", isResolved: true, identityId: "ident_golden" },
+        intent: { active: false, lastUserNeed: null, currentGoal: null, mode: "GREETING_ALLOWED" },
+        execution: { status: "READY", reason: null, controllerTriggered: "mock", fingerprint: "mock" }
+      }
     },
     profile: {
       business_name: "Chioma Beauty Hub",
@@ -95,7 +105,12 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       causationId: "caus_003",
       eventId: "ev_003",
       channel: "simulation",
-      traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" }
+      traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" },
+      state: {
+        identity: { tenantId: "tenant_001", instanceId: "inst_golden", isResolved: true, identityId: "ident_golden" },
+        intent: { active: true, lastUserNeed: "appointment", currentGoal: "rebook", mode: "CONTINUATION_ONLY" },
+        execution: { status: "READY", reason: null, controllerTriggered: "mock", fingerprint: "mock" }
+      }
     },
     profile: {
       business_name: "Chioma Beauty Hub",

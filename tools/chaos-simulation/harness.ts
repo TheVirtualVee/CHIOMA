@@ -70,7 +70,12 @@ export async function runChaosSimulation() {
         eventId: `evt_chaos_${Date.now()}`,
         causationId: `evt_chaos_${Date.now()}`,
         channel: "simulation" as const,
-        traceContext: trace
+        traceContext: trace,
+        state: {
+          identity: { tenantId, instanceId, isResolved: true, identityId: "ident_chaos" },
+          intent: { active: true, lastUserNeed: null, currentGoal: null, mode: "CONTINUATION_ONLY" as const },
+          execution: { status: "READY" as const, reason: null, controllerTriggered: "mock", fingerprint: "mock" }
+        }
       };
 
       try {

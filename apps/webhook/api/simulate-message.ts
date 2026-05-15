@@ -69,6 +69,11 @@ export default async function handler(req: any, res: any) {
           channel: "simulation",
           traceContext: trace,
           instance,
+          state: {
+            identity: { tenantId: tenantId as string, instanceId: "sim_instance", isResolved: true, identityId: "ident_sim" },
+            intent: { active: true, mode: "CONTINUATION_ONLY", currentGoal: "Simulation", lastUserNeed: null },
+            execution: { status: "READY", reason: null, controllerTriggered: "simulation", fingerprint: "simulation" }
+          }
         },
         sql,
         { 
