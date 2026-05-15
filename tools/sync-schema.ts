@@ -32,8 +32,13 @@ async function syncSchema() {
       
       // We wrap each migration in a transaction-like block
       try {
-        // Splitting by semicolon to handle partial failures within a file
-        const statements = content.split(';').filter(s => s.trim().length > 0);
+        // Smart split: split by semicolon only if not inside $$ blocks
+        // This is a heuristic but works for most standard migrations
+        const statements = content
+          .split(/;(?=(?:[^$]*\$\$[^$]*\$\$)*[^$]*$)/g)
+          .map(s => s.trim())
+          .filter(s => s.length > 0);
+
         for (const statement of statements) {
           try {
             await sql.unsafe(statement);
