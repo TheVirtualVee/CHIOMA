@@ -1,4 +1,4 @@
-export type ExecutionState = "COMPLETED" | "FAILED" | "REPLAYED" | "QUARANTINED" | "IN_PROGRESS";
+export type ExecutionState = "COMPLETED" | "FAILED" | "REPLAYED" | "QUARANTINED" | "IN_PROGRESS" | "FOUNDER_COMMAND_DISPATCHED";
 
 export interface TimelineEvent {
   stage: string;

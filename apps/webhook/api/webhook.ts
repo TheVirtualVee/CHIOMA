@@ -5,6 +5,7 @@ import { sendWhatsAppMessage } from "../../../infrastructure/whatsapp/index.js";
 import { TelemetryManager, createTraceContext } from "../../../core/telemetry/index.js";
 import { resolveInstance } from "../../../core/routing/instance-router.js";
 import { notifyFounder, isFounderNumber } from "../../../core/founder/control-plane.js";
+import { processFounderCommand } from "../../../core/founder/command-engine.js";
 import { ExecutionKernel } from "../../../core/kernel/execution-kernel.js";
 
 /**
@@ -54,18 +55,23 @@ export default async function handler(req: any, res: any) {
     }
 
     // 4. Founder Routing Check
-    // Founder messages are routed to the control plane, NOT the customer execution path.
-    if (isFounderNumber(from)) {
-      console.log("[FOUNDER_CP] FOUNDER_MESSAGE_RECEIVED — routing to control plane");
-      // Future: implement interactive founder dashboard here
-      // For now: acknowledge and log
-      telemetry.record("FOUNDER_MESSAGE_RECEIVED", { from });
-      return res.status(200).json({ ok: true, plane: "FOUNDER_CONTROL" });
-    }
-
-    // 5. Instance Resolution
+    // Founder messages bypass ALL normal execution. They go straight to the Command Engine.
     const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
     try {
+      if (isFounderNumber(from)) {
+        telemetry.record("FOUNDER_COMMAND_RECEIVED", { from });
+        const replyText = await processFounderCommand(text, sql);
+        await sendWhatsAppMessage(
+          phoneNumberId,
+          config.WHATSAPP_ACCESS_TOKEN,
+          from,
+          replyText,
+          trace
+        );
+        telemetry.complete("FOUNDER_COMMAND_DISPATCHED");
+        return res.status(200).json({ ok: true, plane: "FOUNDER_CONTROL" });
+      }
+      // 5. Instance Resolution
       const instance = await resolveInstance(sql, phoneNumberId);
       if (!instance) {
         telemetry.record("INSTANCE_NOT_FOUND", { phoneNumberId });
