@@ -30,7 +30,7 @@ export async function deductCredit(
   correlationId: string,
   units: number = 1
 ): Promise<void> {
-  await sql.begin(async (tx: any) => {
+  const execute = async (tx: any) => {
     const [instance] = await tx`
       UPDATE public.chioma_instances
       SET credit_units = credit_units - ${units}
@@ -59,5 +59,12 @@ export async function deductCredit(
         ${correlationId}
       )
     `;
-  });
+  };
+
+  // 🧠 TRANSACTION AWARENESS: If 'sql' is already a transaction (tx), it won't have .begin()
+  if (typeof sql.begin === 'function') {
+    await sql.begin(execute);
+  } else {
+    await execute(sql);
+  }
 }
