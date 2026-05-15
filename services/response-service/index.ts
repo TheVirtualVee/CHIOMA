@@ -15,12 +15,12 @@ const ProposedStaffDecisionSchema = z.object({
 });
 
 const INFERENCE_CONFIG = {
-  timeoutMs: 5_000,
+  timeoutMs: 12_000, // Increased: Vercel cold start + Groq latency can exceed 5s
   maxRetries: 1,
-  retryDelayMs: 500,
+  retryDelayMs: 1_000,
   model: "llama-3.3-70b-versatile",
   temperature: 0.1,
-  maxTokens: 1024,
+  maxTokens: 512, // Reduced: faster response, sufficient for staff replies
 } as const;
 
 interface InferenceMetrics {
@@ -144,12 +144,21 @@ export async function generateStaffReply(
     metrics.attempts = attempt + 1;
 
     try {
+      const provider = config?.provider || process.env.LLM_PROVIDER || "groq";
+      const apiKey = config?.apiKey || process.env.LLM_API_KEY || "";
+      const PROVIDER_URLS: Record<string, string> = {
+        groq: "https://api.groq.com/openai/v1/chat/completions",
+        openai: "https://api.openai.com/v1/chat/completions",
+        openrouter: "https://openrouter.ai/api/v1/chat/completions",
+      };
+      const apiUrl = PROVIDER_URLS[provider] || PROVIDER_URLS["groq"];
+
       const response = await fetchWithTimeout(
-        "https://api.groq.com/openai/v1/chat/completions",
+        apiUrl,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${config?.apiKey || process.env.LLM_API_KEY}`,
+            Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({

@@ -21,8 +21,17 @@ export async function runStaffLoop(
   const t = (m: string) => console.log(`[STAFF_LOOP_TRACE] [${Date.now() - start}ms] ${m}`);
   
   try {
-    const [state]: any[] = await sql`SELECT last_customer_need, current_goal FROM customer_memory WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}`;
-    const facts: { key: string; value: any }[] = await sql`SELECT key, value FROM business_facts WHERE tenant_id = ${input.tenantId} LIMIT 20`;
+    // ASSERT: customer_memory and business_facts may not exist yet for new tenants.
+    // Wrap reads in try/catch — missing tables must never block LLM inference.
+    let state: any = null;
+    let facts: { key: string; value: any }[] = [];
+    try {
+      const [stateRow]: any[] = await sql`SELECT last_customer_need, current_goal FROM customer_memory WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}`;
+      state = stateRow ?? null;
+    } catch { /* Table may not exist for this tenant yet */ }
+    try {
+      facts = await sql`SELECT key, value FROM business_facts WHERE tenant_id = ${input.tenantId} LIMIT 20`;
+    } catch { /* Table may not exist for this tenant yet */ }
     
     // Governed Memory Scrubbing
     const rawMemories = [
@@ -34,11 +43,16 @@ export async function runStaffLoop(
     const isRecovery = input.messageText.includes("[SYSTEM_RECOVERY_TRIGGER]");
 
     // ── BRSE Reality Injection ─────────────────────────────────────
-    const [lockedSnapshot] = await sql`
-      SELECT snapshot_data, locked_at FROM business_snapshots 
-      WHERE tenant_id = ${input.tenantId} AND status = 'LOCKED'
-      ORDER BY locked_at DESC LIMIT 1
-    `;
+    // ASSERT: business_snapshots may not exist for pre-BRSE tenants — degrade gracefully
+    let lockedSnapshot: any = null;
+    try {
+      const [snap] = await sql`
+        SELECT snapshot_data, locked_at FROM public.business_snapshots 
+        WHERE tenant_id = ${input.tenantId} AND status = 'LOCKED'
+        ORDER BY locked_at DESC LIMIT 1
+      `;
+      lockedSnapshot = snap ?? null;
+    } catch { /* Table may not exist yet — continue without snapshot */ }
 
     const realityGrounding = lockedSnapshot 
       ? `LOCKED_OPERATIONAL_TRUTH (Confirmed by owner at ${lockedSnapshot.locked_at}):\n${JSON.stringify(lockedSnapshot.snapshot_data)}`

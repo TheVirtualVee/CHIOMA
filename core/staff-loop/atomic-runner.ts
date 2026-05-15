@@ -10,6 +10,7 @@ import { processOnboardingStep } from "../../services/onboarding-service/index.j
 import { StaffLoopInput, StaffLoopResult, EmployabilityProfile } from "../contracts/index.js";
 import { TelemetryManager } from "../telemetry/index.js";
 import { acquireLease, releaseLease } from "../concurrency/index.js";
+import { RealityGovernor } from "../reality/governor.js";
 
 export async function runAtomicStaffLoop(
   input: StaffLoopInput,
@@ -78,21 +79,28 @@ export async function runAtomicStaffLoop(
       assertLegalTransition("LEDGERED", "PROPOSED");
       telemetry.record("INFERENCE_STARTED", { provider: config.provider });
       
-      const { RealityGovernor } = await import("../reality/governor.js");
       const governor = new RealityGovernor(tx);
       
       // ── TEMPORAL ROUTING ──
-      // Use the provided snapshotId (historical) or resolve the latest active one
+      // ASSERT: business_snapshots may not exist yet (pre-onboarding tenants).
+      // Wrap in try/catch — missing table must degrade gracefully, not crash.
       let snapshotId = input.snapshotId;
       let activeSnapshotData = null;
 
-      if (snapshotId) {
-        const historical = await governor.getSnapshotById(snapshotId);
-        activeSnapshotData = historical?.data;
-      } else {
-        const active = await governor.getActiveSnapshot(input.tenantId);
-        snapshotId = active?.id;
-        activeSnapshotData = active?.data;
+      try {
+        if (snapshotId) {
+          const historical = await governor.getSnapshotById(snapshotId);
+          activeSnapshotData = historical?.data;
+        } else {
+          const active = await governor.getActiveSnapshot(input.tenantId);
+          snapshotId = active?.id;
+          activeSnapshotData = active?.data;
+        }
+      } catch (snapshotErr: unknown) {
+        // Table may not exist yet or tenant has no snapshot — continue without it
+        telemetry.record("SNAPSHOT_UNAVAILABLE", { reason: String(snapshotErr).slice(0, 80) });
+        snapshotId = undefined;
+        activeSnapshotData = null;
       }
       
       const loopResult = await runStaffLoop(input, tx, config, profile);
@@ -256,25 +264,31 @@ export async function runAtomicStaffLoop(
       }
       
       // 🧠 COMMITMENT EXTRACTION (Accountability Ledger)
-      // We scan for promises and bind them to the version of reality used today.
+      // ASSERT: Wrap in try/catch — commitments table may not exist in all deployments.
+      // Commitment creation failure must NEVER block message delivery.
       if (loopResult.decision?.required_actions) {
         for (const action of loopResult.decision.required_actions) {
           if (action.type === "PROMISE_MADE" || action.type === "SCHEDULE_FOLLOWUP") {
-            const deadline = new Date();
-            deadline.setMinutes(deadline.getMinutes() + (action.urgency === "URGENT" ? 15 : 60));
+            try {
+              const deadline = new Date();
+              deadline.setMinutes(deadline.getMinutes() + (action.urgency === "URGENT" ? 15 : 60));
 
-            await tx`
-              INSERT INTO public.commitments (
-                tenant_id, aggregate_id, type, status, 
-                deadline_at, correlation_id, context, 
-                originating_event_id, snapshot_id
-              ) VALUES (
-                ${input.tenantId}, ${aggregateId}, ${action.type}, 'PENDING', 
-                ${deadline.toISOString()}, ${correlationId}, 
-                ${tx.json(action)}, ${proposalEvent.eventId}, ${snapshotId}
-              )
-            `;
-            telemetry.record("COMMITMENT_CREATED", { type: action.type, snapshotId });
+              await tx`
+                INSERT INTO public.commitments (
+                  tenant_id, aggregate_id, type, status, 
+                  deadline_at, correlation_id, context, 
+                  originating_event_id, snapshot_id
+                ) VALUES (
+                  ${input.tenantId}, ${aggregateId}, ${action.type}, 'PENDING', 
+                  ${deadline.toISOString()}, ${correlationId}, 
+                  ${tx.json(action)}, ${proposalEvent.eventId}, ${snapshotId ?? null}
+                )
+              `;
+              telemetry.record("COMMITMENT_CREATED", { type: action.type, snapshotId });
+            } catch (commitErr: unknown) {
+              // Non-fatal: commitment tracking is accountability, not delivery
+              telemetry.record("COMMITMENT_CREATE_FAILED", { type: action.type, reason: String(commitErr).slice(0, 80) });
+            }
           }
         }
       }

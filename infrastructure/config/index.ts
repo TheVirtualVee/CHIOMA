@@ -7,7 +7,7 @@ const ConfigSchema = z.object({
   WHATSAPP_VERIFY_TOKEN: z.string().min(1),
   WHATSAPP_ACCESS_TOKEN: z.string().min(1),
   WHATSAPP_APP_SECRET: z.string().min(1),
-  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().min(1, "Required for WhatsApp delivery").optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -22,5 +22,8 @@ export function validateConfig(): Config {
     throw new Error("CONFIGURATION_ERROR: Check environment variables.");
   }
 
+  if (!result.data.WHATSAPP_PHONE_NUMBER_ID) {
+    console.warn("[CONFIG] WARNING: WHATSAPP_PHONE_NUMBER_ID not set — outbound delivery will use metadata fallback only");
+  }
   return result.data;
 }
