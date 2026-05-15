@@ -15,6 +15,11 @@ export type ChiomaInstance = {
   memory_namespace: string;
 };
 
+export type ExecutionMode = 
+  | "GREETING_ALLOWED" 
+  | "CONTINUATION_ONLY" 
+  | "COMMITMENT_RESOLUTION";
+
 export interface StaffLoopInput {
   messageId: string;
   tenantId: string;
@@ -24,10 +29,14 @@ export interface StaffLoopInput {
   correlationId: string;
   causationId: string;
   eventId: string;
-  channel: "whatsapp" | "simulation";
-  traceContext?: TraceContext;
-  snapshotId?: string;
+  channel: "whatsapp" | "sms" | "web";
+  traceContext?: {
+    traceId: string;
+    workerId: string;
+  };
+  snapshotId?: string; // Optional context from a specific snapshot
   instance?: ChiomaInstance;
+  executionMode?: ExecutionMode; // ← NEW: Structural constraint
 }
 
 export interface StaffLoopResult {

@@ -220,14 +220,22 @@ export async function runAtomicStaffLoop(
       // Handle QUEUE_FOR_RECOVERY or context overrides
       const extraContext = verdict.contextOverride ? `\n\n[ARBITER_OVERRIDE]: ${verdict.contextOverride}` : "";
 
-      // ── BILLING DEDUCTION ──────────────────────────────────────────
-      // Deduct credit BEFORE LLM call to prevent free usage on crash
-      telemetry.record("BILLING_DEDUCTION_STARTED");
-      await deductCredit(tx, input.instanceId, input.tenantId, correlationId, 1);
+      // ── EXECUTION MODE GATE (CESM) ──────────────────────────────
+      // ASSERT: Determine structural generation constraints before LLM runs.
+      let executionMode: ExecutionMode = "GREETING_ALLOWED";
       
+      if (activeCommitmentContext) {
+        executionMode = "COMMITMENT_RESOLUTION";
+      } else if (state?.last_customer_need || state?.current_goal) {
+        executionMode = "CONTINUATION_ONLY";
+      }
+
+      telemetry.record("EXECUTION_MODE_SET", { mode: executionMode });
+
       const loopResult = await runStaffLoop({
         ...input,
-        messageText: input.messageText + extraContext
+        messageText: input.messageText + extraContext,
+        executionMode // ← Pass structural constraint
       }, tx, config, profile);
       telemetry.record("INFERENCE_COMPLETED", { latencyMs: loopResult.latencyMs });
       

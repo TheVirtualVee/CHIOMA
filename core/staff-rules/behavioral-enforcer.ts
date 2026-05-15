@@ -53,18 +53,39 @@ const VERBOSE_FILLER = [
   /\bThank you so much for\b/gi,
   /\bI completely understand\b/gi,
 ];
-const DESPERATION_PATTERNS = [
-  /\bplease (?:don't|do not) hesitate\b/gi,
-  /\bwe would (?:love|really love) to\b/gi,
-  /\bdon't miss (?:out|this)\b/gi,
-  /\bact now\b/gi,
-  /\blimited time\b/gi,
-  /\bhurry\b/gi,
+const GREETING_PATTERNS = [
+  /^hello[!, ]*/i,
+  /^hi[!, ]*/i,
+  /^good (?:morning|afternoon|evening)[!, ]*/i,
+  /^how (?:can|may) i (?:help|assist) (?:you )?today\??/i,
+  /^welcome to .*[!, ]*/i,
+  /thank you for reaching out[!, ]*/i,
 ];
 
-export function enforceEmployeePsychology(response: string): BehavioralAuditResult {
+export function enforceEmployeePsychology(
+  response: string,
+  mode: string = "GREETING_ALLOWED"
+): BehavioralAuditResult {
   const violations: BehavioralViolation[] = [];
-  let corrected = response;
+  let corrected = response.trim();
+
+  // ── GREETING SUPPRESSION (CESM) ─────────────────────────────────
+  if (mode === "CONTINUATION_ONLY" || mode === "COMMITMENT_RESOLUTION") {
+    for (const pattern of GREETING_PATTERNS) {
+      if (pattern.test(corrected)) {
+        violations.push({
+          rule: "REDUNDANT_GREETING",
+          severity: "CORRECT",
+          detail: `Greeting detected in ${mode} mode. Stripping for continuity.`,
+        });
+        corrected = corrected.replace(pattern, "").trim();
+        // Capitalize first letter of remaining text
+        if (corrected.length > 0) {
+          corrected = corrected[0].toUpperCase() + corrected.slice(1);
+        }
+      }
+    }
+  }
 
   for (const pattern of AI_DISCLOSURE_PATTERNS) {
     if (pattern.test(corrected)) {
