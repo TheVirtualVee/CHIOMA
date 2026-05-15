@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { createDatabaseClient } from "../infrastructure/database/index.js";
+import { createDatabaseClient } from "../../infrastructure/database/index.js";
 
 async function checkSchema() {
   const sql = createDatabaseClient(process.env.DATABASE_URL!, { max: 1 });
