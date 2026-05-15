@@ -32,11 +32,12 @@ export interface StaffLoopInput {
 
 export interface StaffLoopResult {
   responseText: string;
-  responseType: "onboarding" | "conversation" | "error_degraded";
+  responseType: 'conversation' | 'error_degraded' | 'internal_failure';
   delivered: boolean;
   latencyMs: number;
   correlationId: string;
   decision?: StaffDecision;
+  latencyBreakdown?: LatencyBreakdown;
 }
 
 export interface EmployabilityProfile {
@@ -142,6 +143,14 @@ export type ExecutionRequest = {
   schedulerConflict: boolean;
 };
 
+export type LatencyBreakdown = {
+  identityMs?: number;
+  arbitrationMs?: number;
+  inferenceMs?: number;
+  dispatchMs?: number;
+  totalMs: number;
+};
+
 export type GateTraceEntry = {
   gate: string;
   decision: 'passed' | 'triggered' | 'blocked';
@@ -162,6 +171,8 @@ export type ArbiterVerdict = {
   recoveryPayload?: object;
   resolvedAt: number;
   fingerprint: string;
+  latencyBreakdown?: LatencyBreakdown;
 };
+
 
 

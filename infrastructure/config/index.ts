@@ -14,7 +14,14 @@ export type Config = z.infer<typeof ConfigSchema>;
 
 export function validateConfig(): Config {
   console.log("[CONFIG] START_VALIDATION");
-  const result = ConfigSchema.safeParse(process.env);
+
+  // Multi-provider mapping logic
+  const env = { ...process.env };
+  if (!env.LLM_API_KEY) {
+    env.LLM_API_KEY = env.GROQ_API_KEY || env.OPENROUTER_API_KEY || env.OPENAI_API_KEY;
+  }
+
+  const result = ConfigSchema.safeParse(env);
   console.log(`[CONFIG] VALIDATION_RESULT: ${result.success}`);
 
   if (!result.success) {

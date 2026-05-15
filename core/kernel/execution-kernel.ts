@@ -7,14 +7,30 @@ import { ExecutionRequest, StaffLoopInput, StaffLoopResult } from "../contracts/
 
 /**
  * CHIOMA EXECUTION KERNEL
- * Phase 4 — Execution Governance Consolidation
- * 
- * The single authoritative "Decision Spine" for all CHIOMA runtime actions.
+ * Phase 5 — Execution Resilience & Adaptive Governance
  */
+
+class LoadMonitor {
+  private latencies: number[] = [];
+  private windowSize = 20;
+
+  record(ms: number) {
+    this.latencies.push(ms);
+    if (this.latencies.length > this.windowSize) this.latencies.shift();
+  }
+
+  getAverage(): number {
+    if (this.latencies.length === 0) return 0;
+    return this.latencies.reduce((a, b) => a + b, 0) / this.latencies.length;
+  }
+}
+
+const monitor = new LoadMonitor();
 
 export class ExecutionKernel {
   private static activeExecutions = 0;
-  private static MAX_CONCURRENT_EXECUTIONS = 50; // System-wide budget
+  private static MAX_CONCURRENT_EXECUTIONS = 50; // Initial cap
+  private static LATENCY_THRESHOLD_MS = 15000; // 15s P95 target
 
   static async execute(
     input: StaffLoopInput,
@@ -22,21 +38,33 @@ export class ExecutionKernel {
     config: { apiKey: string; provider: string; model: string },
     telemetry: TelemetryManager
   ): Promise<StaffLoopResult> {
-    const start = Date.now();
+    const startTime = Date.now();
+    const breakdown: any = {};
     
-    // 1. GLOBAL BUDGET GOVERNOR
+    // 1. ADAPTIVE BUDGET GOVERNOR
+    const avgLatency = monitor.getAverage();
+    if (avgLatency > this.LATENCY_THRESHOLD_MS && this.MAX_CONCURRENT_EXECUTIONS > 5) {
+      this.MAX_CONCURRENT_EXECUTIONS -= 1; // Back off
+      console.warn(`[KERNEL] ADAPTIVE_BACKOFF: Lowering budget to ${this.MAX_CONCURRENT_EXECUTIONS} due to latency (${avgLatency}ms)`);
+    } else if (avgLatency < (this.LATENCY_THRESHOLD_MS / 2) && this.MAX_CONCURRENT_EXECUTIONS < 100) {
+      this.MAX_CONCURRENT_EXECUTIONS += 1; // Scale up
+    }
+
     if (this.activeExecutions >= this.MAX_CONCURRENT_EXECUTIONS) {
-      telemetry.record("SYSTEM_CONGESTED", { active: this.activeExecutions });
-      return this.degradedFallback(start, input.correlationId, "System is under heavy load. Please try again in a moment.");
+      telemetry.record("SYSTEM_CONGESTED", { active: this.activeExecutions, cap: this.MAX_CONCURRENT_EXECUTIONS });
+      return this.degradedFallback(startTime, input.correlationId, "System is under heavy load. Please try again in a moment.");
     }
 
     this.activeExecutions++;
     try {
       // 2. IDENTITY CANONICALIZATION
+      const identityStart = Date.now();
       const identityId = await getCanonicalIdentity(sql, input.tenantId, input.senderPhone);
+      breakdown.identityMs = Date.now() - identityStart;
       telemetry.record("IDENTITY_RESOLVED", { identityId });
 
       // 3. SCHEDULER ARBITRATION
+      const arbStart = Date.now();
       const aggregateId = `conv_${input.senderPhone}`;
       const [activeLease] = await sql`
         SELECT worker_id FROM public.concurrency_leases 
@@ -78,38 +106,54 @@ export class ExecutionKernel {
 
       // 4. GOVERNANCE ARBITRATION
       const verdict = await runArbiter(arbiterRequest, sql, config.apiKey);
+      breakdown.arbitrationMs = Date.now() - arbStart;
       telemetry.record("KERNEL_ARBITRATION_COMPLETE", { outcome: verdict.outcome, trace: verdict.gateTrace });
 
       if (verdict.outcome === 'BLOCK_RESPONSE') {
         const isConflict = verdict.controllerTriggered === 'Gate0_Arbitration';
-        return {
+        const result = {
           responseText: isConflict 
             ? "I'm already working on your request. Just a moment!"
             : "Your account requires attention. Please contact support.",
-          responseType: "conversation",
+          responseType: "conversation" as const,
           delivered: false,
-          latencyMs: Date.now() - start,
+          latencyMs: Date.now() - startTime,
           correlationId: input.correlationId,
+          latencyBreakdown: { ...breakdown, totalMs: Date.now() - startTime }
         };
+        monitor.record(result.latencyMs);
+        return result;
       }
 
       if (verdict.outcome === 'DEGRADE_RESPONSE') {
-        return this.degradedFallback(start, input.correlationId);
+        const result = this.degradedFallback(startTime, input.correlationId);
+        monitor.record(result.latencyMs);
+        return result;
       }
 
       // 5. ATOMIC EXECUTION
-      // Pass enriched context from arbiter if applicable
+      const inferenceStart = Date.now();
       const enrichedInput = {
         ...input,
         messageText: input.messageText + (verdict.contextOverride ? `\n\n[KERNEL_OVERRIDE]: ${verdict.contextOverride}` : "")
       };
 
-      return await runStaffLoopSimplified(enrichedInput, sql, config, telemetry);
+      const result = await runStaffLoopSimplified(enrichedInput, sql, config, telemetry);
+      breakdown.inferenceMs = Date.now() - inferenceStart;
+      
+      const finalResult = {
+        ...result,
+        latencyBreakdown: { ...breakdown, totalMs: Date.now() - startTime }
+      };
+      
+      monitor.record(finalResult.latencyMs);
+      return finalResult;
 
     } finally {
       this.activeExecutions--;
     }
   }
+
 
   private static degradedFallback(start: number, correlationId: string, customText?: string): StaffLoopResult {
     return {
