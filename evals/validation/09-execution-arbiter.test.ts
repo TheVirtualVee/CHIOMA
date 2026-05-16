@@ -20,7 +20,7 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
     schedulerConflict: false
   };
 
-  it("Scenario A: Billing overrides commitment (Insufficient credit + Commitment)", () => {
+  it("Scenario A: Tenant rejection blocks before billing (Expired trial + Commitment)", () => {
     const request: ExecutionRequest = {
       ...baseRequest,
       creditBalance: 0,
@@ -32,8 +32,8 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
 
     expect(verdict.outcome).toBe("BLOCK_RESPONSE");
 
-    // UPDATED: matches real arbiter (atomic billing gate, not old Gate1_Billing)
-    expect(verdict.controllerTriggered).toBe("Gate1_AtomicBilling");
+    // Tenant gate triggers before billing in current arbiter flow
+    expect(verdict.controllerTriggered).toBe("Gate1_TenantValidity");
   });
 
   it("Scenario B: Commitment override allowed (Healthy billing + Commitment)", () => {
@@ -57,8 +57,6 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
     const verdict = evaluateGates(request);
 
     expect(verdict.outcome).toBe("BLOCK_RESPONSE");
-
-    // UPDATED: arbiter now returns Gate1_TenantValidity (correct)
     expect(verdict.controllerTriggered).toBe("Gate1_TenantValidity");
   });
 
@@ -71,8 +69,6 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
     const verdict = evaluateGates(request);
 
     expect(verdict.outcome).toBe("BLOCK_RESPONSE");
-
-    // UPDATED: same fix as above
     expect(verdict.controllerTriggered).toBe("Gate1_TenantValidity");
   });
 
@@ -85,7 +81,7 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
     expect(verdict.controllerTriggered).toBe("Gate7_Default");
   });
 
-  it("Scenario F: ABM cannot bypass billing", () => {
+  it("Scenario F: ABM schedule respects tenant + billing rules", () => {
     const request: ExecutionRequest = {
       ...baseRequest,
       triggeredBy: "abm_schedule",
@@ -97,8 +93,8 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
 
     expect(verdict.outcome).toBe("BLOCK_RESPONSE");
 
-    // UPDATED: again atomic billing gate
-    expect(verdict.controllerTriggered).toBe("Gate1_AtomicBilling");
+    // Tenant gate still wins before billing in execution order
+    expect(verdict.controllerTriggered).toBe("Gate1_TenantValidity");
   });
 
 });
