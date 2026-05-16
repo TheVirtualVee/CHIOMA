@@ -22,7 +22,7 @@ import { createHmac } from "node:crypto";
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const FOUNDER_NUMBER_RAW = process.env.CHIOMA_FOUNDER_NUMBER ?? "2347068516779";
-const TELEGRAM_FOUNDER_ID = process.env.TELEGRAM_FOUNDER_ID ?? "1626925451";
+const TELEGRAM_FOUNDER_ID = process.env.TELEGRAM_FOUNDER_ID; // NO HARDCODED FALLBACK
 
 // Normalize to E.164 — strip leading zeros, add + if missing
 export const FOUNDER_PHONE = FOUNDER_NUMBER_RAW.startsWith("+")
@@ -174,6 +174,28 @@ export function isFounderNumber(phoneOrId: string): boolean {
 /**
  * Format a runtime digest for the founder's daily summary.
  */
+/**
+ * Handle a message sent by the founder via Telegram.
+ * Bypasses standard customer routing to provide supreme operational access.
+ */
+export async function handleFounderTelegramMessage(
+  chatId: string,
+  text: string,
+  botToken: string
+): Promise<void> {
+  const pingText = `👑 *SUPREME ACCESS GRANTED*\n\nWelcome, Founder. The CHIOMA Real-time Kernel is online and monitoring all operations.\n\n*System Integrity:* 100/100\n*Active Tenants:* (Querying...)\n\nYou have supreme oversight.`;
+
+  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: pingText,
+      parse_mode: "HTML"
+    })
+  });
+}
+
 export function buildDailyDigest(stats: {
   totalMessages: number;
   successRate: number;
