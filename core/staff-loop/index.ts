@@ -11,6 +11,7 @@ import { validateStaffAction, sanitizeStaffReply } from "../staff-rules/index.js
 import { enforceEmployeePsychology } from "../staff-rules/behavioral-enforcer.js";
 import { generateStaffReply } from "../../services/response-service/index.js";
 import { enforceMemoryGovernance, createGovernedMemory } from "../memory/governance.js";
+import { validateOutputResponse } from "../staff-rules/output-validator.js";
 
 function buildStrategicDirective(
   state: ExecutionState
@@ -167,6 +168,20 @@ export async function runStaffLoop(
         ? "Let me look into that for you right now."
         : behavioralAudit.safeFallback;
       finalConfidence = 0.9;
+    }
+
+    // OUTPUT VALIDATION: deterministic post-inference check
+    // Runs AFTER behavioral enforcer — catches greeting resets, identity leaks,
+    // system prompt leakage before delivery. Never throws.
+    const outputValidation = validateOutputResponse(
+      finalReply,
+      input.state.intent.mode as "GREETING_ALLOWED" | "CONTINUATION_ONLY" | "COMMITMENT_RESOLUTION" | "ONBOARDING" | "DAILY_BRIEF",
+      input.state.intent.currentGoal
+    );
+    if (!outputValidation.valid) {
+      t(`OUTPUT_VALIDATION_FAILED: ${outputValidation.violations.join(", ")} — using repaired response`);
+      finalReply = outputValidation.repairedResponse;
+      finalConfidence = Math.max(0.75, finalConfidence);
     }
 
     const finalAction: StaffAction = actionOverride
