@@ -1,17 +1,15 @@
 /**
  * api/telegram-webhook.ts
- *
- * TELEGRAM INBOUND WEBHOOK HANDLER (ROOT PROMOTION)
+ * ROOT PROMOTION (Telegram Webhook)
  */
-
-import { validateConfig } from "../infrastructure/config/index.js";
-import { createDatabaseClient } from "../infrastructure/database/index.js";
-import { resolveInstanceByTenant } from "../core/routing/instance-router.js";
-import { ExecutionKernel } from "../core/kernel/execution-kernel.js";
-import { DeliveryGuaranteeLayer } from "../core/delivery/index.js";
-import { createTraceContext } from "../core/telemetry/index.js";
-import { TelemetryManager } from "../core/telemetry/index.js";
-import { isFounderNumber, handleFounderTelegramMessage } from "../core/founder/control-plane.js";
+import { validateConfig } from "@chioma/infrastructure/config/index.js";
+import { createDatabaseClient } from "@chioma/infrastructure/database/index.js";
+import { resolveInstanceByTenant } from "@chioma/core/routing/instance-router.js";
+import { ExecutionKernel } from "@chioma/core/kernel/execution-kernel.js";
+import { DeliveryGuaranteeLayer } from "@chioma/core/delivery/index.js";
+import { createTraceContext } from "@chioma/core/telemetry/index.js";
+import { TelemetryManager } from "@chioma/core/telemetry/index.js";
+import { isFounderNumber, handleFounderTelegramMessage } from "@chioma/core/founder/control-plane.js";
 import { randomUUID } from "node:crypto";
 
 type TelegramUpdate = {

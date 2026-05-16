@@ -6,7 +6,8 @@
   "exports": {
     "./database": "./database/index.ts",
     "./config": "./config/index.ts",
-    "./whatsapp": "./whatsapp/index.ts"
+    "./whatsapp": "./whatsapp/index.ts",
+    "./*": "./*"
   },
   "dependencies": {
     "postgres": "^3.4.9",

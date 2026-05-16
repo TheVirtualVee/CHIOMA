@@ -16,6 +16,19 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
 
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@chioma/core": ["./core/index.ts"],
+      "@chioma/core/*": ["./core/*"],
+      "@chioma/infrastructure": ["./infrastructure/index.ts"],
+      "@chioma/infrastructure/*": ["./infrastructure/*"],
+      "@chioma/business-learning": ["./services/business-learning/index.ts"],
+      "@chioma/business-learning/*": ["./services/business-learning/*"],
+      "@chioma/response-service": ["./services/response-service/index.ts"],
+      "@chioma/response-service/*": ["./services/response-service/*"],
+      "@chioma/onboarding-service": ["./services/onboarding-service/index.ts"],
+      "@chioma/onboarding-service/*": ["./services/onboarding-service/*"]
+    }
   }
 }

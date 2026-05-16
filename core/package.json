@@ -11,7 +11,8 @@
     "./runtime": "./runtime/index.ts",
     "./events": "./events/index.ts",
     "./telemetry": "./telemetry/index.ts",
-    "./contracts/telemetry": "./contracts/telemetry.ts"
+    "./contracts/telemetry": "./contracts/telemetry.ts",
+    "./*": "./*"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

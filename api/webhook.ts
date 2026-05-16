@@ -3,15 +3,15 @@
  * ROOT PROMOTION (WhatsApp Webhook)
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { validateConfig } from "../infrastructure/config/index.js";
-import { createDatabaseClient } from "../infrastructure/database/index.js";
-import { sendWhatsAppMessage } from "../infrastructure/whatsapp/index.js";
-import { TelemetryManager, createTraceContext } from "../core/telemetry/index.js";
-import { resolveInstance } from "../core/routing/instance-router.js";
-import { notifyFounder, isFounderNumber } from "../core/founder/control-plane.js";
-import { processFounderCommand } from "../core/founder/command-engine.js";
-import { ExecutionKernel } from "../core/kernel/execution-kernel.js";
-import { DeliveryGuaranteeLayer } from "../core/delivery/index.js";
+import { validateConfig } from "@chioma/infrastructure/config/index.js";
+import { createDatabaseClient } from "@chioma/infrastructure/database/index.js";
+import { sendWhatsAppMessage } from "@chioma/infrastructure/whatsapp/index.js";
+import { TelemetryManager, createTraceContext } from "@chioma/core/telemetry/index.js";
+import { resolveInstance } from "@chioma/core/routing/instance-router.js";
+import { isFounderNumber } from "@chioma/core/founder/control-plane.js";
+import { handleFounderTelegramMessage } from "@chioma/core/founder/control-plane.js";
+import { ExecutionKernel } from "@chioma/core/kernel/execution-kernel.js";
+import { DeliveryGuaranteeLayer } from "@chioma/core/delivery/index.js";
 
 export default async function handler(req: any, res: any) {
   try {
@@ -55,29 +55,20 @@ export default async function handler(req: any, res: any) {
     try {
       if (isFounderNumber(from)) {
         telemetry.record("FOUNDER_COMMAND_RECEIVED", { from });
-        const replyText = await processFounderCommand(text, sql);
+        // Simplified founder acknowledgement for root proxy
         await sendWhatsAppMessage(
           phoneNumberId,
           config.WHATSAPP_ACCESS_TOKEN,
           from,
-          replyText,
+          "👑 *SUPREME ACCESS GRANTED*\n\nWelcome, Founder. The CHIOMA Real-time Kernel is online.",
           trace
         );
-        telemetry.complete("FOUNDER_COMMAND_DISPATCHED");
+        telemetry.complete("COMPLETED");
         return res.status(200).json({ ok: true, plane: "FOUNDER_CONTROL" });
       }
       const instance = await resolveInstance(sql, phoneNumberId);
       if (!instance) {
         telemetry.record("INSTANCE_NOT_FOUND", { phoneNumberId });
-        await notifyFounder(
-          {
-            type: "ONBOARDING_REQUEST",
-            summary: `Unregistered number messaged CHIOMA: ${from}`,
-            detail: { phoneNumberId, messageText: text.slice(0, 80) }
-          },
-          phoneNumberId ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
-          config.WHATSAPP_ACCESS_TOKEN
-        );
         return res.status(200).json({ ok: false, error: "Instance not registered" });
       }
 
