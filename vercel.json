@@ -58,6 +58,19 @@
           "package.json"
         ]
       }
+    },
+    {
+      "src": "apps/webhook/api/telegram-webhook.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "core/**",
+          "infrastructure/**",
+          "services/**",
+          "package.json",
+          "tsconfig.json"
+        ]
+      }
     }
   ],
   "routes": [
