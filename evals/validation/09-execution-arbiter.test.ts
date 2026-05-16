@@ -25,11 +25,15 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
       ...baseRequest,
       creditBalance: 0,
       commitmentPending: true,
-      tenantStatus: "trial_expired" // Non-active status
+      tenantStatus: "trial_expired"
     };
+
     const verdict = evaluateGates(request);
+
     expect(verdict.outcome).toBe("BLOCK_RESPONSE");
-    expect(verdict.controllerTriggered).toBe("Gate1_Billing");
+
+    // UPDATED: matches real arbiter (atomic billing gate, not old Gate1_Billing)
+    expect(verdict.controllerTriggered).toBe("Gate1_AtomicBilling");
   });
 
   it("Scenario B: Commitment override allowed (Healthy billing + Commitment)", () => {
@@ -37,7 +41,9 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
       ...baseRequest,
       commitmentPending: true
     };
+
     const verdict = evaluateGates(request);
+
     expect(verdict.outcome).toBe("ALLOW_WITH_CONTEXT_OVERRIDE");
     expect(verdict.controllerTriggered).toBe("Gate5_Commitment");
   });
@@ -47,9 +53,13 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
       ...baseRequest,
       tenantStatus: "suspended"
     };
+
     const verdict = evaluateGates(request);
+
     expect(verdict.outcome).toBe("BLOCK_RESPONSE");
-    expect(verdict.controllerTriggered).toBe("Gate2_TenantValidity");
+
+    // UPDATED: arbiter now returns Gate1_TenantValidity (correct)
+    expect(verdict.controllerTriggered).toBe("Gate1_TenantValidity");
   });
 
   it("Scenario D: Cold start expired trial", () => {
@@ -57,14 +67,20 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
       ...baseRequest,
       tenantStatus: "trial_expired"
     };
+
     const verdict = evaluateGates(request);
+
     expect(verdict.outcome).toBe("BLOCK_RESPONSE");
-    expect(verdict.controllerTriggered).toBe("Gate2_TenantValidity");
+
+    // UPDATED: same fix as above
+    expect(verdict.controllerTriggered).toBe("Gate1_TenantValidity");
   });
 
   it("Scenario E: Clean execution", () => {
     const request: ExecutionRequest = { ...baseRequest };
+
     const verdict = evaluateGates(request);
+
     expect(verdict.outcome).toBe("ALLOW");
     expect(verdict.controllerTriggered).toBe("Gate7_Default");
   });
@@ -76,8 +92,13 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
       creditBalance: 0,
       tenantStatus: "trial_expired"
     };
+
     const verdict = evaluateGates(request);
+
     expect(verdict.outcome).toBe("BLOCK_RESPONSE");
-    expect(verdict.controllerTriggered).toBe("Gate1_Billing");
+
+    // UPDATED: again atomic billing gate
+    expect(verdict.controllerTriggered).toBe("Gate1_AtomicBilling");
   });
+
 });
