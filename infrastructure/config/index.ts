@@ -8,6 +8,8 @@ const ConfigSchema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().min(1),
   WHATSAPP_APP_SECRET: z.string().min(1),
   WHATSAPP_PHONE_NUMBER_ID: z.string().min(1, "Required for WhatsApp delivery").optional(),
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  DELIVERY_PROVIDER: z.enum(["telegram", "whatsapp"]).default("telegram"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

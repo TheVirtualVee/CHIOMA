@@ -80,6 +80,10 @@
     {
       "src": "/api/recovery-cron",
       "dest": "apps/webhook/api/recovery-cron.ts"
+    },
+    {
+      "src": "/api/telegram-webhook",
+      "dest": "apps/webhook/api/telegram-webhook.ts"
     }
   ],
   "functions": {
@@ -90,6 +94,9 @@
       "maxDuration": 60
     },
     "apps/webhook/api/simulate-message.ts": {
+      "maxDuration": 60
+    },
+    "apps/webhook/api/telegram-webhook.ts": {
       "maxDuration": 60
     }
   },

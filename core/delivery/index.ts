@@ -1,3 +1,4 @@
+import { sendTelegramMessage, confirmTelegramDelivery } from "../adapters/telegram/index.js";
 import { DeliveryContract } from "../contracts/index.js";
 import { TelemetryManager } from "../telemetry/index.js";
 import { sendWhatsAppMessage } from "../../infrastructure/whatsapp/index.js";
@@ -18,7 +19,7 @@ export class DeliveryGuaranteeLayer {
   static async execute(
     contract: DeliveryContract,
     sql: any,
-    config: { phoneNumberId: string; accessToken: string },
+    config: { phoneNumberId?: string; accessToken: string; provider?: string },
     telemetry: TelemetryManager
   ): Promise<DeliveryContract> {
     if (contract.intent === "NO_SEND") {
@@ -65,26 +66,49 @@ export class DeliveryGuaranteeLayer {
 
     telemetry.record("DELIVERY_ATTEMPTED", { to: contract.payload?.to });
 
+    // Provider routing: DELIVERY_PROVIDER env var selects channel
+    // "telegram" → Telegram Bot API | "whatsapp" → Meta Cloud API | default → telegram (MVP)
+    const provider = (config.provider ?? process.env.DELIVERY_PROVIDER ?? "telegram").toLowerCase();
+
     try {
-      await sendWhatsAppMessage(
-        config.phoneNumberId,
-        config.accessToken,
-        contract.payload!.to,
-        contract.payload!.text,
-        { traceId: contract.traceId, workerId: "DGL", executionId: `dgl_${contract.traceId}` }
-      );
+      if (provider === "whatsapp") {
+        // Existing WhatsApp path — unchanged
+        await sendWhatsAppMessage(
+          config.phoneNumberId!,
+          config.accessToken,
+          contract.payload!.to,
+          contract.payload!.text,
+          { traceId: contract.traceId, workerId: "DGL", executionId: `dgl_${contract.traceId}` }
+        );
+        try {
+          await sql`UPDATE public.delivery_queue SET status = 'DELIVERED', delivered_at = NOW()
+                    WHERE trace_id = ${contract.traceId}`;
+        } catch { /* Non-fatal */ }
+        telemetry.record("DELIVERY_CONFIRMED", { channel: "whatsapp" });
+
+      } else {
+        // Telegram path — TDA
+        const botToken = config.accessToken ?? process.env.TELEGRAM_BOT_TOKEN ?? "";
+        const telegramResult = await sendTelegramMessage(
+          botToken,
+          contract.payload!.to,  // to = Telegram chat_id for Telegram channel
+          contract.payload!.text,
+          contract.traceId
+        );
+        await confirmTelegramDelivery(
+          sql,
+          contract.traceId,
+          contract.tenantId,
+          contract.instanceId,
+          contract.payload!.to,
+          contract.payload!.text,
+          telegramResult
+        );
+        if (!telegramResult.ok) throw new Error(telegramResult.error);
+        telemetry.record("DELIVERY_CONFIRMED", { channel: "telegram" });
+      }
 
       contract.deliveryState = "SENT";
-
-      // Mark DELIVERED in queue — idempotency key is now set
-      try {
-        await sql`
-          UPDATE public.delivery_queue SET status = 'DELIVERED', delivered_at = NOW()
-          WHERE trace_id = ${contract.traceId}
-        `;
-      } catch { /* Non-fatal */ }
-
-      telemetry.record("DELIVERY_CONFIRMED", { channel: "whatsapp" });
       return contract;
 
     } catch (err: unknown) {

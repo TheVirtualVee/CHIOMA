@@ -62,7 +62,7 @@ export interface StaffLoopInput {
   correlationId: string;
   causationId: string;
   eventId: string;
-  channel: "whatsapp" | "sms" | "web" | "simulation";
+  channel: "whatsapp" | "sms" | "web" | "simulation" | "telegram";
   state: ExecutionState; 
   traceContext?: {
     traceId: string;
