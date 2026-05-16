@@ -13,14 +13,20 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+
     "db:push": "supabase db push --db-url \"$DATABASE_URL\"",
     "db:pull": "supabase db pull --db-url \"$DATABASE_URL\"",
     "db:reset": "supabase db reset --db-url \"$DATABASE_URL\"",
+
     "deploy:check": "node scripts/deploy-check.mjs",
     "overseer:check": "node scripts/overseer.mjs",
-    "build:webhook": "tsc --noEmit --project tsconfig.json",
+
+    "build:webhook": "npm run typecheck",
     "deploy:webhook": "cd apps/webhook && vercel deploy --prod",
-    "vercel:typecheck": "tsc --noEmit --project tsconfig.json"
+
+    "vercel:typecheck": "npm run typecheck",
+
+    "postinstall": "npm run build"
   },
   "dependencies": {
     "@chioma/business-learning": "*",
