@@ -29,20 +29,10 @@
     }
   ],
   "functions": {
-    "api/webhook.ts": {
-      "maxDuration": 60
-    },
-    "api/telegram-webhook.ts": {
-      "maxDuration": 60
-    },
-    "api/recovery-cron.ts": {
-      "maxDuration": 60
-    },
-    "api/simulate-message.ts": {
-      "maxDuration": 30
-    },
-    "api/debug-loop.ts": {
-      "maxDuration": 30
-    }
+    "api/webhook.ts": { "maxDuration": 60 },
+    "api/telegram-webhook.ts": { "maxDuration": 60 },
+    "api/recovery-cron.ts": { "maxDuration": 60 },
+    "api/simulate-message.ts": { "maxDuration": 30 },
+    "api/debug-loop.ts": { "maxDuration": 30 }
   }
 }
