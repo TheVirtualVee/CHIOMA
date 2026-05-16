@@ -22,21 +22,26 @@
       }
     }
   ],
-  "functions": {
-    "api/webhook.ts": {
-      "maxDuration": 60
+  "routes": [
+    {
+      "src": "/api/webhook",
+      "dest": "/api/webhook.ts"
     },
-    "api/telegram-webhook.ts": {
-      "maxDuration": 60
+    {
+      "src": "/api/telegram-webhook",
+      "dest": "/api/telegram-webhook.ts"
     },
-    "api/recovery-cron.ts": {
-      "maxDuration": 60
+    {
+      "src": "/api/recovery-cron",
+      "dest": "/api/recovery-cron.ts"
     },
-    "api/simulate-message.ts": {
-      "maxDuration": 30
+    {
+      "src": "/api/simulate-message",
+      "dest": "/api/simulate-message.ts"
     },
-    "api/debug-loop.ts": {
-      "maxDuration": 30
+    {
+      "src": "/api/debug-loop",
+      "dest": "/api/debug-loop.ts"
     }
-  }
+  ]
 }
