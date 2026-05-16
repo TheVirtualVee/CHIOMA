@@ -83,7 +83,7 @@ export async function runBehavioralSimulation() {
           instance,
           state: {
             identity: { tenantId, instanceId: instance.instance_id, isResolved: true, identityId: "ident_replay" },
-            intent: { active: true, mode: "CONTINUATION_ONLY", currentGoal: null, lastUserNeed: null },
+            intent: { active: true, mode: "CONTINUATION_ONLY", currentGoal: null, lastUserNeed: null , toneState: "CALM", messageCount: 0},
             execution: { status: "READY", reason: null, controllerTriggered: "mock", fingerprint: "mock" }
           }
         }, sql, {

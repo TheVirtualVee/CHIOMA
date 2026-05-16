@@ -75,7 +75,7 @@ export default async function handler(req: any, res: any) {
         instance,
         state: {
           identity: { tenantId, instanceId: "debug_instance", isResolved: true, identityId: "ident_debug" },
-          intent: { active: true, mode: "CONTINUATION_ONLY", currentGoal: "Debug Loop", lastUserNeed: null },
+          intent: { active: true, mode: "CONTINUATION_ONLY", currentGoal: "Debug Loop", lastUserNeed: null , toneState: "CALM", messageCount: 0},
           execution: { status: "READY", reason: null, controllerTriggered: "debug", fingerprint: "debug" }
         }
       },

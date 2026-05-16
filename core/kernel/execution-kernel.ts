@@ -89,12 +89,23 @@ export class ExecutionKernel {
     const identityId = await getCanonicalIdentity(sql, input.tenantId, input.senderPhone);
     const isResolved = !!input.instanceId;
 
+    // Fetch commitment count + customer memory context in one pass
     const [commitmentData] = await sql`
-      SELECT count(*)::int as active_count, 
-             EXISTS(SELECT 1 FROM public.commitments WHERE tenant_id = ${input.tenantId} AND aggregate_id = ${`conv_${input.senderPhone}`} AND status = 'PENDING') as has_pending,
-             EXISTS(SELECT 1 FROM public.customer_memory WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}) as has_memory
-      FROM public.commitments 
-      WHERE tenant_id = ${input.tenantId} AND aggregate_id = ${`conv_${input.senderPhone}`} AND status = 'PENDING'
+      SELECT 
+        (SELECT count(*)::int FROM public.commitments 
+         WHERE tenant_id = ${input.tenantId} AND aggregate_id = ${`conv_${input.senderPhone}`} AND status = 'PENDING') as active_count,
+        EXISTS(SELECT 1 FROM public.commitments 
+               WHERE tenant_id = ${input.tenantId} AND aggregate_id = ${`conv_${input.senderPhone}`} AND status = 'PENDING') as has_pending,
+        EXISTS(SELECT 1 FROM public.customer_memory 
+               WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}) as has_memory,
+        (SELECT last_customer_need FROM public.customer_memory 
+         WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}) as last_customer_need,
+        (SELECT current_goal FROM public.customer_memory 
+         WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}) as current_goal,
+        (SELECT COALESCE(message_count, 0) FROM public.customer_memory 
+         WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}) as message_count,
+        (SELECT tone_state FROM public.customer_memory 
+         WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}) as tone_state
     `;
 
     const [onboardingStatus] = await sql`SELECT onboarding_completed FROM employer_profiles WHERE tenant_id = ${input.tenantId}`;
@@ -104,12 +115,16 @@ export class ExecutionKernel {
     const [activeBriefSession] = await sql`SELECT 1 FROM public.daily_brief_sessions WHERE tenant_id = ${input.tenantId} AND status = 'AWAITING_INPUT' LIMIT 1`;
 
     const isGreeting = isSimpleGreeting(input.messageText);
+    const isReturningCustomer = (commitmentData?.message_count ?? 0) > 0;
     let mode: ExecutionState['intent']['mode'] = "GREETING_ALLOWED";
 
     if (needsOnboarding) mode = "ONBOARDING";
     else if (isBriefCommand || activeBriefSession) mode = "DAILY_BRIEF";
     else if (commitmentData?.has_pending) mode = "COMMITMENT_RESOLUTION";
-    else if (commitmentData?.has_memory || !isGreeting) mode = "CONTINUATION_ONLY";
+    // STRUCTURAL GREETING REGRESSION GUARD:
+    // If customer has sent >0 messages before, they are NEVER in GREETING_ALLOWED.
+    // This is enforced at the state level — the LLM cannot override it.
+    else if (isReturningCustomer || commitmentData?.has_memory || !isGreeting) mode = "CONTINUATION_ONLY";
 
     const fingerprint = createHash("sha256")
       .update(input.tenantId + input.instanceId + input.messageText)
@@ -149,8 +164,10 @@ export class ExecutionKernel {
       intent: { 
         active: commitmentData?.has_memory || commitmentData?.has_pending,
         mode,
-        currentGoal: null, 
-        lastUserNeed: null 
+        currentGoal: commitmentData?.current_goal ?? null,
+        lastUserNeed: commitmentData?.last_customer_need ?? null,
+        toneState: commitmentData?.tone_state ?? 'CALM',
+        messageCount: commitmentData?.message_count ?? 0
       },
       execution: { 
         status, 

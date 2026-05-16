@@ -73,7 +73,7 @@ export async function runChaosSimulation() {
         traceContext: trace,
         state: {
           identity: { tenantId, instanceId, isResolved: true, identityId: "ident_chaos" },
-          intent: { active: true, lastUserNeed: null, currentGoal: null, mode: "CONTINUATION_ONLY" as const },
+          intent: { active: true, lastUserNeed: null, currentGoal: null, mode: "CONTINUATION_ONLY" as const , toneState: "CALM", messageCount: 0},
           execution: { status: "READY" as const, reason: null, controllerTriggered: "mock", fingerprint: "mock" }
         }
       };

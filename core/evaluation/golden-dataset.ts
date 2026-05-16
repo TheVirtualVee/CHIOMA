@@ -36,7 +36,7 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" },
       state: {
         identity: { tenantId: "tenant_001", instanceId: "inst_golden", isResolved: true, identityId: "ident_golden" },
-        intent: { active: true, lastUserNeed: "pricing", currentGoal: "quote weave", mode: "CONTINUATION_ONLY" },
+        intent: { active: true, lastUserNeed: "pricing", currentGoal: "quote weave", mode: "CONTINUATION_ONLY" , toneState: "CALM", messageCount: 0},
         execution: { status: "READY", reason: null, controllerTriggered: "mock", fingerprint: "mock" }
       }
     },
@@ -72,7 +72,7 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" },
       state: {
         identity: { tenantId: "tenant_001", instanceId: "inst_golden", isResolved: true, identityId: "ident_golden" },
-        intent: { active: false, lastUserNeed: null, currentGoal: null, mode: "GREETING_ALLOWED" },
+        intent: { active: false, lastUserNeed: null, currentGoal: null, mode: "GREETING_ALLOWED" , toneState: "CALM", messageCount: 0},
         execution: { status: "READY", reason: null, controllerTriggered: "mock", fingerprint: "mock" }
       }
     },
@@ -108,7 +108,7 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" },
       state: {
         identity: { tenantId: "tenant_001", instanceId: "inst_golden", isResolved: true, identityId: "ident_golden" },
-        intent: { active: true, lastUserNeed: "appointment", currentGoal: "rebook", mode: "CONTINUATION_ONLY" },
+        intent: { active: true, lastUserNeed: "appointment", currentGoal: "rebook", mode: "CONTINUATION_ONLY" , toneState: "CALM", messageCount: 0},
         execution: { status: "READY", reason: null, controllerTriggered: "mock", fingerprint: "mock" }
       }
     },

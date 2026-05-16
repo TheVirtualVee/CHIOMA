@@ -78,7 +78,7 @@ export default async function handler(req: any, res: any) {
           instance,
           state: {
             identity: { tenantId: tenantId as string, instanceId: "sim_instance", isResolved: true, identityId: "ident_sim" },
-            intent: { active: true, mode: "CONTINUATION_ONLY", currentGoal: "Simulation", lastUserNeed: null },
+            intent: { active: true, mode: "CONTINUATION_ONLY", currentGoal: "Simulation", lastUserNeed: null , toneState: "CALM", messageCount: 0},
             execution: { status: "READY", reason: null, controllerTriggered: "simulation", fingerprint: "simulation" }
           }
         },

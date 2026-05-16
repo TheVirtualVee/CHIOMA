@@ -41,13 +41,22 @@ function buildStrategicDirective(
 function buildConversationHeartbeat(
   state: ExecutionState
 ): string {
-  if (!state.intent.lastUserNeed && !state.intent.currentGoal) {
-    return "## SESSION: New — no prior interaction on record.";
+  if (!state.intent.lastUserNeed && !state.intent.currentGoal && (state.intent.messageCount ?? 0) === 0) {
+    return "## SESSION: New customer — first interaction on record.";
   }
-  return `## CONVERSATION_HEARTBEAT [ACTIVE SESSION]:
-- Last Declared Need: "${state.intent.lastUserNeed || "Unknown"}"
-- Current Active Goal: "${state.intent.currentGoal || "Unknown"}"
-- NOTE: This customer has an open thread. Continue it directly.`;
+  const toneInstruction = state.intent.toneState === "FRUSTRATED"
+    ? "IMPORTANT: This customer was frustrated in their previous message. Acknowledge empathetically before addressing their current request."
+    : state.intent.toneState === "URGENT"
+    ? "IMPORTANT: This customer has signalled urgency. Respond promptly and directly."
+    : "";
+  return [`## CONVERSATION_HEARTBEAT [ACTIVE SESSION]:
+- Previous Interaction Count: ${state.intent.messageCount ?? 0}
+- Last Declared Need: "${state.intent.lastUserNeed || "Not explicitly stated"}"
+- Current Active Goal: "${state.intent.currentGoal || "Not set"}"
+- Customer Tone: ${state.intent.toneState ?? "CALM"}
+- NOTE: This customer has an existing thread. Continue it directly.`,
+    toneInstruction
+  ].filter(Boolean).join("\n");
 }
 
 function buildSystemBrief(

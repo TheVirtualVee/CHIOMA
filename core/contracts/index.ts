@@ -38,6 +38,8 @@ export type ExecutionState = {
     mode: "GREETING_ALLOWED" | "CONTINUATION_ONLY" | "COMMITMENT_RESOLUTION" | "ONBOARDING" | "DAILY_BRIEF";
     currentGoal: string | null;
     lastUserNeed: string | null;
+    toneState: string;    // CALM | FRUSTRATED | URGENT | HAPPY — persisted across turns
+    messageCount: number; // total messages this customer has sent — used for greeting guard
   };
 
   // 3. EXECUTION INVARIANT: Every request must resolve into a deterministic outcome.

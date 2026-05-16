@@ -129,6 +129,41 @@ export async function runAtomicStaffLoop(
       loopResult.responseText = getSafetyFallback(mode);
     }
 
+    // P1: Persist conversation state to customer_memory for the next turn.
+    // This is what enables CONTINUATION_ONLY and COMMITMENT_RESOLUTION modes
+    // to work correctly — without this write, every message is stateless.
+    if (loopResult.responseType === 'conversation' || loopResult.responseType === 'onboarding') {
+      const customerNeed = loopResult.decision?.customer_need ?? input.state.intent.lastUserNeed ?? input.messageText.slice(0, 200);
+      const currentGoal = loopResult.decision?.intent_type ?? input.state.intent.currentGoal ?? "general_inquiry";
+      const newMessageCount = (input.state.intent.messageCount ?? 0) + 1;
+
+      // Detect tone from response type and behavioral signals
+      const toneState = loopResult.decision?.safety_flags?.includes("FRUSTRATION_DETECTED")
+        ? "FRUSTRATED"
+        : loopResult.decision?.safety_flags?.includes("URGENT_SIGNAL")
+        ? "URGENT"
+        : input.state.intent.toneState ?? "CALM";
+
+      try {
+        await tx`
+          INSERT INTO public.customer_memory
+            (tenant_id, customer_phone, last_customer_need, current_goal, message_count, tone_state, updated_at)
+          VALUES
+            (${input.tenantId}, ${input.senderPhone}, ${customerNeed}, ${currentGoal}, ${newMessageCount}, ${toneState}, NOW())
+          ON CONFLICT (tenant_id, customer_phone) DO UPDATE SET
+            last_customer_need = EXCLUDED.last_customer_need,
+            current_goal       = EXCLUDED.current_goal,
+            message_count      = customer_memory.message_count + 1,
+            tone_state         = EXCLUDED.tone_state,
+            updated_at         = NOW()
+        `;
+        telemetry.record("MEMORY_PERSISTED", { messageCount: newMessageCount, toneState, mode });
+      } catch (memErr: unknown) {
+        // Non-fatal: memory persistence failure must never block delivery
+        console.error("[ATOMIC_RUNNER] MEMORY_PERSIST_FAILED:", String(memErr).slice(0, 100));
+      }
+    }
+
     const dglContract: DeliveryContract = {
       traceId: telemetry.getTimeline().traceId,
       tenantId: input.tenantId,
