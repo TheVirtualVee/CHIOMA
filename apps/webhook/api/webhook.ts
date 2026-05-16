@@ -1,13 +1,16 @@
+/**
+ * api/webhook.ts
+ */
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { validateConfig } from "../../../infrastructure/config/index.js";
-import { createDatabaseClient } from "../../../infrastructure/database/index.js";
-import { sendWhatsAppMessage } from "../../../infrastructure/whatsapp/index.js";
-import { TelemetryManager, createTraceContext } from "../../../core/telemetry/index.js";
-import { resolveInstance } from "../../../core/routing/instance-router.js";
-import { notifyFounder, isFounderNumber } from "../../../core/founder/control-plane.js";
-import { processFounderCommand } from "../../../core/founder/command-engine.js";
-import { ExecutionKernel } from "../../../core/kernel/execution-kernel.js";
-import { DeliveryGuaranteeLayer } from "../../../core/delivery/index.js";
+import { validateConfig } from "@chioma/infrastructure/config/index.js";
+import { createDatabaseClient } from "@chioma/infrastructure/database/index.js";
+import { sendWhatsAppMessage } from "@chioma/infrastructure/whatsapp/index.js";
+import { TelemetryManager, createTraceContext } from "@chioma/core/telemetry/index.js";
+import { resolveInstance } from "@chioma/core/routing/instance-router.js";
+import { notifyFounder, isFounderNumber } from "@chioma/core/founder/control-plane.js";
+import { processFounderCommand } from "@chioma/core/founder/command-engine.js";
+import { ExecutionKernel } from "@chioma/core/kernel/execution-kernel.js";
+import { DeliveryGuaranteeLayer } from "@chioma/core/delivery/index.js";
 
 export default async function handler(req: any, res: any) {
   try {
@@ -59,7 +62,7 @@ export default async function handler(req: any, res: any) {
           replyText,
           trace
         );
-        telemetry.complete("FOUNDER_COMMAND_DISPATCHED");
+        telemetry.complete("COMPLETED");
         return res.status(200).json({ ok: true, plane: "FOUNDER_CONTROL" });
       }
       const instance = await resolveInstance(sql, phoneNumberId);
@@ -94,13 +97,8 @@ export default async function handler(req: any, res: any) {
         instance,
       };
 
-      // P0: Return 200 to Meta IMMEDIATELY before LLM inference.
-      // Meta requires 200 within 20 seconds. LLM can take 8-15s.
-      // Returning after inference guarantees timeout → Meta retry storm.
-      // The function continues executing after res.json() in Vercel Node runtime.
       res.status(200).json({ ok: true, traceId: trace.traceId });
 
-      // Async execution after 200 already sent — Meta will not retry
       try {
         const result = await ExecutionKernel.execute(staffLoopInput, sql, {
           apiKey: config.LLM_API_KEY,
@@ -114,9 +112,6 @@ export default async function handler(req: any, res: any) {
             accessToken: config.WHATSAPP_ACCESS_TOKEN
           };
           await DeliveryGuaranteeLayer.execute(result.deliveryContract, sql, deliveryConfig, telemetry);
-        } else {
-          telemetry.record("DGL_INVARIANT_VIOLATION", { reason: "MISSING_CONTRACT" });
-          console.error("[WEBHOOK] DGL_INVARIANT_VIOLATION: kernel returned no delivery contract");
         }
 
         telemetry.complete("COMPLETED");
@@ -124,7 +119,6 @@ export default async function handler(req: any, res: any) {
         const execMsg = execErr instanceof Error ? execErr.message : String(execErr);
         console.error("[WEBHOOK] ASYNC_EXECUTION_FAILED:", execMsg);
         telemetry.record("ASYNC_EXECUTION_FAILED", { error: execMsg.slice(0, 120) });
-        // 200 already sent — log for recovery worker to pick up
       }
 
     } finally {
