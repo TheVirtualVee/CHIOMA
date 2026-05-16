@@ -22,10 +22,14 @@ import { createHmac } from "node:crypto";
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const FOUNDER_NUMBER_RAW = process.env.CHIOMA_FOUNDER_NUMBER ?? "2347068516779";
+const TELEGRAM_FOUNDER_ID = process.env.TELEGRAM_FOUNDER_ID ?? "1626925451";
+
 // Normalize to E.164 — strip leading zeros, add + if missing
 export const FOUNDER_PHONE = FOUNDER_NUMBER_RAW.startsWith("+")
   ? FOUNDER_NUMBER_RAW
   : `+${FOUNDER_NUMBER_RAW}`;
+
+export const FOUNDER_TELEGRAM_ID = TELEGRAM_FOUNDER_ID;
 
 export type FounderEventType =
   | "ONBOARDING_REQUEST"       // New business messaged the onboarding number
@@ -158,10 +162,13 @@ export async function notifyFounder(
  * Used by webhook to route founder messages to the control plane
  * instead of treating them as customer messages.
  */
-export function isFounderNumber(phone: string): boolean {
-  // Normalize both for comparison
+export function isFounderNumber(phoneOrId: string): boolean {
+  // 1. Check Telegram ID (Direct Match)
+  if (phoneOrId === FOUNDER_TELEGRAM_ID) return true;
+
+  // 2. Check Phone (Normalized)
   const normalize = (p: string) => p.replace(/^\+/, "").replace(/\s/g, "");
-  return normalize(phone) === normalize(FOUNDER_PHONE);
+  return normalize(phoneOrId) === normalize(FOUNDER_PHONE);
 }
 
 /**

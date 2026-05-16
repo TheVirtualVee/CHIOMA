@@ -50,6 +50,7 @@ export type ExecutionState = {
     fingerprint: string; // Deduplication/Idempotency key
     contextOverride?: string; // Optional context enrichment from Arbiter
     recoveryPayload?: any; // Optional recovery data from Arbiter
+    businessContext?: string; // FAILURE-010: Learned tenant knowledge
   };
 };
 

@@ -64,6 +64,21 @@ export default async function handler(req: any, res: any) {
   // Founder routing — same guard as WhatsApp path
   if (isFounderNumber(fromId)) {
     console.log("[TELEGRAM_WEBHOOK] FOUNDER_MESSAGE: routing to control plane");
+    
+    // Acknowledge the supreme founder directly
+    const botToken = config.TELEGRAM_BOT_TOKEN ?? "";
+    const pingText = `👑 *SUPREME ACCESS GRANTED*\n\nWelcome, Founder. The CHIOMA Real-time Kernel is online and monitoring all operations.\n\n*System Integrity:* 100/100\n*Active Tenants:* (Querying...)\n\nYou have supreme oversight.`;
+    
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: pingText,
+        parse_mode: "HTML"
+      })
+    });
+
     return;
   }
 

@@ -65,11 +65,13 @@ function buildSystemBrief(
   activeCommitmentContext: string,
   realityGrounding: string,
   facts: { key: string; value: any }[],
-  isRecovery: boolean
+  isRecovery: boolean,
+  businessContext?: string
 ): string {
   return [
     buildStrategicDirective(state),
     buildConversationHeartbeat(state),
+    businessContext ? `## LEARNED_BUSINESS_CONTEXT:\n${businessContext}` : null,
     activeCommitmentContext || null,
     isRecovery ? "CRITICAL: You are in a recovery scenario. Acknowledge and stabilize." : null,
     realityGrounding,
@@ -131,7 +133,8 @@ export async function runStaffLoop(
       activeCommitmentContext,
       realityGrounding,
       facts,
-      isRecovery
+      isRecovery,
+      input.state.execution.businessContext
     );
 
     t("LLM_INVOCATION_START");

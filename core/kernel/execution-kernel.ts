@@ -109,6 +109,7 @@ export class ExecutionKernel {
     `;
 
     const [onboardingStatus] = await sql`SELECT onboarding_completed FROM employer_profiles WHERE tenant_id = ${input.tenantId}`;
+    const [knowledge] = await sql`SELECT business_context FROM public.tenant_knowledge WHERE tenant_id = ${input.tenantId}`;
     const needsOnboarding = onboardingStatus && !onboardingStatus.onboarding_completed;
     
     const isBriefCommand = input.messageText.toLowerCase().trim() === "/daily brief";
@@ -175,7 +176,8 @@ export class ExecutionKernel {
         controllerTriggered: verdict.controllerTriggered,
         fingerprint,
         contextOverride: verdict.contextOverride,
-        recoveryPayload: verdict.recoveryPayload
+        recoveryPayload: verdict.recoveryPayload,
+        businessContext: knowledge?.business_context
       }
     };
   }

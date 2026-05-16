@@ -14,17 +14,12 @@ export function evaluateGates(request: ExecutionRequest): {
     return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate0_Arbitration', reason: 'COMPETING_SCHEDULER_ACTIVE', gateTrace };
   }
 
-  const credits = request.creditBalance ?? 0;
-  const billingPassed = !(credits < request.creditRequired && request.tenantStatus !== 'active');
-  gateTrace.push({ gate: 'billing', decision: billingPassed ? 'passed' : 'blocked', reason: billingPassed ? undefined : 'INSUFFICIENT_CREDITS' });
-  if (!billingPassed) {
-     return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate1_Billing', reason: 'INSUFFICIENT_CREDITS', gateTrace };
-  }
-
+  // P0: Pre-check billing status (active/suspended) but skip pre-fetched balance check.
+  // The actual credit lease is now atomic via RPC in runArbiter.
   const tenantValid = !['suspended', 'trial_expired'].includes(request.tenantStatus);
   gateTrace.push({ gate: 'tenant', decision: tenantValid ? 'passed' : 'blocked', reason: tenantValid ? undefined : `TENANT_STATUS_${request.tenantStatus.toUpperCase()}` });
   if (!tenantValid) {
-    return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate2_TenantValidity', reason: `TENANT_STATUS_${request.tenantStatus.toUpperCase()}`, gateTrace };
+    return { outcome: 'BLOCK_RESPONSE', controllerTriggered: 'Gate1_TenantValidity', reason: `TENANT_STATUS_${request.tenantStatus.toUpperCase()}`, gateTrace };
   }
 
   const safetyPassed = request.safetyFlags.length === 0;
@@ -142,7 +137,35 @@ Include contextOverride (Max 1-3 sentences, business-safe only) or recoveryPaylo
 
 export async function runArbiter(request: ExecutionRequest, sql: any, apiKey: string): Promise<ArbiterVerdict> {
   const start = Date.now();
-  const gateResult = evaluateGates(request);
+  let gateResult = evaluateGates(request);
+
+  // FAILURE-002: Atomic Credit Lease
+  // If gates passed, we attempt to lease credits atomically.
+  if (gateResult.outcome === 'ALLOW' || gateResult.outcome === 'ALLOW_WITH_CONTEXT_OVERRIDE') {
+    try {
+      const [lease] = await sql`SELECT public.lease_credit(${request.tenantId}, ${request.creditRequired}) as result`;
+      if (!lease.result.success) {
+        gateResult = {
+          outcome: 'BLOCK_RESPONSE',
+          controllerTriggered: 'Gate1_AtomicBilling',
+          reason: 'INSUFFICIENT_CREDITS',
+          gateTrace: [...gateResult.gateTrace, { gate: 'atomic_billing', decision: 'blocked', reason: 'INSUFFICIENT_CREDITS' }]
+        };
+      } else {
+        gateResult.gateTrace.push({ gate: 'atomic_billing', decision: 'passed' });
+      }
+    } catch (err) {
+      console.error("[ARBITER] ATOMIC_LEASE_FAILED:", err);
+      // Fail-safe: if DB lease fails, we block to prevent overdraft
+      gateResult = {
+        outcome: 'BLOCK_RESPONSE',
+        controllerTriggered: 'Gate1_AtomicBilling_Error',
+        reason: 'BILLING_SERVICE_UNAVAILABLE',
+        gateTrace: [...gateResult.gateTrace, { gate: 'atomic_billing', decision: 'blocked', reason: 'DB_ERROR' }]
+      };
+    }
+  }
+
   const verdict = await enrichVerdict(request, gateResult, apiKey);
   const durationMs = Date.now() - start;
   

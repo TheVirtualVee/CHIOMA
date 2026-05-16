@@ -177,9 +177,7 @@ export async function runAtomicStaffLoop(
       throw new Error("[DGL_INVARIANT_VIOLATION] Missing delivery contract intent");
     }
 
-    if (loopResult.responseType === 'conversation') {
-      await deductCredit(tx, input.instanceId, input.tenantId, correlationId, 1);
-    }
+    // P0: Credit deduction removed — handled by atomic lease in the Arbiter
 
     const seq = await getNextSequenceNumber(tx, aggregateId);
     const messageReceivedEvent = {

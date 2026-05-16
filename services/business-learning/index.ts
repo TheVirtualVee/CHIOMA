@@ -1,5 +1,8 @@
 import { z } from "zod";
 import type { BusinessDraft } from "../../core/contracts/index.js";
+import { SocialPost } from "./types.js";
+import { fetchInstagramPosts } from "./adapters/instagram.js";
+import { fetchTikTokPosts } from "./adapters/tiktok.js";
 
 /**
  * services/business-learning/index.ts
@@ -25,10 +28,109 @@ const BusinessModelSchema = z.object({
   confidence_scores: z.record(z.number()),
 });
 
+/**
+ * Orchestrates social discovery for a tenant.
+ * Enforces a 15-minute rate limit per platform.
+ */
+export async function runSocialDiscovery(
+  sql: any,
+  tenantId: string,
+  credentials: { instagram?: { accessToken: string, businessId: string }, tiktok?: { accessToken: string } }
+): Promise<SocialPost[]> {
+  // 1. Fetch tenant-specific handles
+  const [profile] = await sql`SELECT instagram_handle, tiktok_handle FROM public.tenant_social_profiles WHERE tenant_id = ${tenantId}`;
+  if (!profile) {
+    console.warn(`[SOCIAL_DISCOVERY] No social profile found for tenant ${tenantId}`);
+    return [];
+  }
+
+  const [instance] = await sql`SELECT last_instagram_fetch, last_tiktok_fetch FROM public.chioma_instances WHERE tenant_id = ${tenantId}`;
+  if (!instance) return [];
+
+  const now = new Date();
+  const FIFTEEN_MINS = 15 * 60 * 1000;
+  
+  const allPosts: SocialPost[] = [];
+
+  // Instagram Discovery
+  const igLastFetch = instance.last_instagram_fetch ? new Date(instance.last_instagram_fetch) : new Date(0);
+  if (credentials.instagram && profile.instagram_handle && (now.getTime() - igLastFetch.getTime() > FIFTEEN_MINS)) {
+    const igPosts = await fetchInstagramPosts(profile.instagram_handle, credentials.instagram);
+    allPosts.push(...igPosts);
+    
+    // Persist posts (tenant_id scoped)
+    for (const post of igPosts) {
+      await sql`
+        INSERT INTO public.social_posts (tenant_id, platform, external_id, content, published_at)
+        VALUES (${tenantId}, 'instagram', ${post.id}, ${post.content}, ${post.timestamp})
+        ON CONFLICT (tenant_id, platform, external_id) DO UPDATE SET content = EXCLUDED.content
+      `;
+    }
+    
+    await sql`UPDATE public.chioma_instances SET last_instagram_fetch = NOW() WHERE tenant_id = ${tenantId}`;
+  }
+
+  // TikTok Discovery
+  const ttLastFetch = instance.last_tiktok_fetch ? new Date(instance.last_tiktok_fetch) : new Date(0);
+  if (credentials.tiktok && profile.tiktok_handle && (now.getTime() - ttLastFetch.getTime() > FIFTEEN_MINS)) {
+    const ttPosts = await fetchTikTokPosts(profile.tiktok_handle, credentials.tiktok);
+    allPosts.push(...ttPosts);
+
+    // Persist posts (tenant_id scoped)
+    for (const post of ttPosts) {
+      await sql`
+        INSERT INTO public.social_posts (tenant_id, platform, external_id, content, published_at)
+        VALUES (${tenantId}, 'tiktok', ${post.id}, ${post.content}, ${post.timestamp})
+        ON CONFLICT (tenant_id, platform, external_id) DO UPDATE SET content = EXCLUDED.content
+      `;
+    }
+
+    await sql`UPDATE public.chioma_instances SET last_tiktok_fetch = NOW() WHERE tenant_id = ${tenantId}`;
+  }
+
+  return allPosts;
+}
+
+/**
+ * Summarization Job: Synthesis of tenant-specific knowledge.
+ * Reads social_posts WHERE tenant_id = X and writes to tenant_knowledge.
+ */
+export async function updateTenantKnowledge(sql: any, tenantId: string): Promise<void> {
+  const posts = await sql`
+    SELECT platform, content, published_at 
+    FROM public.social_posts 
+    WHERE tenant_id = ${tenantId} 
+    ORDER BY published_at DESC 
+    LIMIT 20
+  `;
+
+  if (posts.length === 0) return;
+
+  const socialPosts = posts.map((p: any) => ({
+    source: p.platform as any,
+    content: p.content,
+    timestamp: p.published_at.toISOString(),
+    id: ""
+  }));
+
+  const draft = await generateBusinessDraft(socialPosts);
+  const businessContext = formatDraftForEmployer(draft);
+
+  await sql`
+    INSERT INTO public.tenant_knowledge (tenant_id, business_context, last_updated_at)
+    VALUES (${tenantId}, ${businessContext}, NOW())
+    ON CONFLICT (tenant_id) DO UPDATE SET 
+      business_context = EXCLUDED.business_context,
+      last_updated_at = NOW()
+  `;
+}
+
 export async function generateBusinessDraft(
-  linkContents: string[]
+  linkContents: string[] | SocialPost[]
 ): Promise<BusinessDraft> {
-  const combinedText = linkContents.join("\n\n---\n\n");
+  const combinedText = Array.isArray(linkContents) && typeof linkContents[0] !== 'string'
+    ? (linkContents as SocialPost[]).map(p => `[${p.source.toUpperCase()}] ${p.timestamp}: ${p.content}`).join("\n\n---\n\n")
+    : (linkContents as string[]).join("\n\n---\n\n");
 
   const staffInstructions = `You are CHIOMA, a new digital employee learning about a business.
 Read the following public data from the business's social links and provide a structured draft of what you understand about your new employer's business.

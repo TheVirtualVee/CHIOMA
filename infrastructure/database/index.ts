@@ -16,6 +16,27 @@ export function createDatabaseClient(url: string, options: { max?: number } = {}
   return client;
 }
 
+/**
+ * FAILURE-009: Tenant-scoped client factory.
+ * Enforces RLS by setting 'app.tenant_id'.
+ * 
+ * To avoid transaction nesting collisions with the AtomicRunner,
+ * we use a reserved connection for the duration of the request context.
+ */
+export async function createTenantClient(url: string, tenantId: string, options: { max?: number } = {}) {
+  const sql = createDatabaseClient(url, { ...options, max: 1 });
+  
+  // 🛡️ CRITICAL HARDENING:
+  // 1. Downgrade session from superuser (postgres) to chioma_runtime (NOBYPASSRLS)
+  // 2. Set the tenant boundary
+  await sql.begin(async tx => {
+    await tx`SET ROLE chioma_runtime`;
+    await tx`SELECT set_config('app.tenant_id', ${tenantId}, false)`;
+  });
+  
+  return sql;
+}
+
 export async function commitEvent(
   sql: any,
   event: {
