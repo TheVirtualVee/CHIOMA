@@ -28,10 +28,45 @@ export class DeliveryGuaranteeLayer {
     }
 
     this.validate(contract);
+
+    // P1: Idempotency check — if traceId was already delivered, skip silently.
+    // Prevents duplicate WhatsApp messages on recovery retries.
+    // ASSERT: delivery_queue table exists (migration 20260527000300)
+    try {
+      const [alreadyDelivered] = await sql`
+        SELECT trace_id FROM public.delivery_queue
+        WHERE trace_id = ${contract.traceId} AND status = 'DELIVERED'
+        LIMIT 1
+      `;
+      if (alreadyDelivered) {
+        contract.deliveryState = "SKIPPED";
+        telemetry.record("DELIVERY_IDEMPOTENT_SKIP", { traceId: contract.traceId });
+        console.log(`[DGL] IDEMPOTENT_SKIP: trace_id=${contract.traceId} already delivered`);
+        return contract;
+      }
+    } catch {
+      // Non-fatal: delivery_queue may not exist on cold start — proceed with send
+    }
+
+    // Record delivery attempt in queue BEFORE sending
+    // This ensures recovery worker sees the attempt even if send crashes mid-flight
+    try {
+      await sql`
+        INSERT INTO public.delivery_queue
+          (trace_id, tenant_id, instance_id, recipient, payload_json, status, last_error)
+        VALUES
+          (${contract.traceId}, ${contract.tenantId}, ${contract.instanceId},
+           ${contract.payload!.to}, ${sql.json(contract.payload!)}, 'IN_FLIGHT', NULL)
+        ON CONFLICT (trace_id) DO UPDATE SET status = 'IN_FLIGHT', updated_at = NOW()
+      `;
+    } catch {
+      // Non-fatal: proceed with send even if queue write fails
+    }
+
     telemetry.record("DELIVERY_ATTEMPTED", { to: contract.payload?.to });
 
     try {
-      const result = await sendWhatsAppMessage(
+      await sendWhatsAppMessage(
         config.phoneNumberId,
         config.accessToken,
         contract.payload!.to,
@@ -40,32 +75,47 @@ export class DeliveryGuaranteeLayer {
       );
 
       contract.deliveryState = "SENT";
+
+      // Mark DELIVERED in queue — idempotency key is now set
+      try {
+        await sql`
+          UPDATE public.delivery_queue SET status = 'DELIVERED', delivered_at = NOW()
+          WHERE trace_id = ${contract.traceId}
+        `;
+      } catch { /* Non-fatal */ }
+
       telemetry.record("DELIVERY_CONFIRMED", { channel: "whatsapp" });
       return contract;
 
-    } catch (err: any) {
-      console.error(`[DGL] Delivery failed, queuing: ${err.message}`);
-      await this.persistToQueue(contract, sql, err.message);
-      
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[DGL] Delivery failed, queuing: ${errMsg}`);
+      await this.persistToQueue(contract, sql, errMsg);
+
       contract.deliveryState = "QUEUED";
-      telemetry.record("DELIVERY_FAILED", { error: err.message, queued: true });
+      telemetry.record("DELIVERY_FAILED", { error: errMsg, queued: true });
       return contract;
     }
   }
 
-  private static async persistToQueue(contract: DeliveryContract, sql: any, error: string) {
-    await sql`
-      INSERT INTO public.delivery_queue (
-        trace_id, tenant_id, instance_id, recipient, payload_json, status, last_error
-      ) VALUES (
-        ${contract.traceId}, 
-        ${contract.tenantId}, 
-        ${contract.instanceId}, 
-        ${contract.payload!.to}, 
-        ${sql.json(contract.payload!)}, 
-        'PENDING', 
-        ${error}
-      )
-    `;
+  private static async persistToQueue(
+    contract: DeliveryContract,
+    sql: any,
+    error: string
+  ): Promise<void> {
+    try {
+      await sql`
+        INSERT INTO public.delivery_queue
+          (trace_id, tenant_id, instance_id, recipient, payload_json, status, last_error)
+        VALUES
+          (${contract.traceId}, ${contract.tenantId}, ${contract.instanceId},
+           ${contract.payload!.to}, ${sql.json(contract.payload!)}, 'PENDING', ${error})
+        ON CONFLICT (trace_id) DO UPDATE SET
+          status = 'PENDING', last_error = ${error}, updated_at = NOW()
+      `;
+    } catch (queueErr: unknown) {
+      // If queue write fails, log but don't mask the original delivery error
+      console.error(`[DGL] QUEUE_WRITE_FAILED: ${String(queueErr).slice(0, 100)}`);
+    }
   }
 }
