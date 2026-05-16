@@ -1,17 +1,42 @@
 {
   "version": 2,
-  "functions": {
-    "api/*.ts": {
-      "maxDuration": 60
-    },
-    "apps/webhook/api/*.ts": {
-      "maxDuration": 60
-    }
-  },
   "crons": [
     {
       "path": "/api/recovery-cron",
       "schedule": "*/1 * * * *"
     }
-  ]
+  ],
+  "builds": [
+    {
+      "src": "api/*.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "apps/**",
+          "core/**",
+          "infrastructure/**",
+          "services/**",
+          "package.json",
+          "tsconfig.json"
+        ]
+      }
+    }
+  ],
+  "functions": {
+    "api/webhook.ts": {
+      "maxDuration": 60
+    },
+    "api/telegram-webhook.ts": {
+      "maxDuration": 60
+    },
+    "api/recovery-cron.ts": {
+      "maxDuration": 60
+    },
+    "api/simulate-message.ts": {
+      "maxDuration": 30
+    },
+    "api/debug-loop.ts": {
+      "maxDuration": 30
+    }
+  }
 }

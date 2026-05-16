@@ -24,6 +24,7 @@ type TelegramUpdate = {
 };
 
 export default async function handler(req: any, res: any) {
+  console.log("[TELEGRAM_WEBHOOK] BOOT", { method: req.method, url: req.url });
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   // Acknowledge Telegram immediately
