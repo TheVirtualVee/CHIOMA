@@ -27,6 +27,13 @@ export default async function handler(req: any, res: any) {
   console.log("[TELEGRAM_WEBHOOK] BOOT", { method: req.method, url: req.url });
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  // Verify Telegram secret token
+  const secretHeader = req.headers['x-telegram-bot-api-secret-token'];
+  if (secretHeader !== process.env.TELEGRAM_WEBHOOK_SECRET) {
+    console.warn("[TELEGRAM_WEBHOOK] INVALID_SECRET from", req.headers['x-forwarded-for']);
+    return res.status(200).json({ ok: true }); // Return 200 to not reveal the endpoint exists
+  }
+
   // Acknowledge Telegram immediately
   res.status(200).json({ ok: true });
 
