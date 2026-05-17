@@ -61,7 +61,21 @@ export default async function handler(req: any, res: any) {
   const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
   try {
-    const tenantId = process.env.TELEGRAM_TENANT_ID ?? `tenant_tg_${chatId}`;
+    let tenantId: string = process.env.TELEGRAM_TENANT_ID ?? "";
+    if (!tenantId) {
+      try {
+        const [firstActive] = await sql`
+          SELECT tenant_id FROM public.chioma_instances
+          WHERE billing_state = 'ACTIVE' AND credit_units > 0
+          ORDER BY created_at ASC
+          LIMIT 1
+        `;
+        tenantId = firstActive?.tenant_id ?? "my-first-biz";
+      } catch (err) {
+        console.warn("[TELEGRAM_WEBHOOK] Failed to query active tenant fallback, using my-first-biz:", String(err).slice(0, 100));
+        tenantId = "my-first-biz";
+      }
+    }
     const instance = await resolveInstanceByTenant(sql, tenantId);
 
     if (!instance) {
