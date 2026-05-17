@@ -80,7 +80,6 @@ export async function processOnboardingStep(
   await sql`
     UPDATE employer_profiles 
     SET onboarding_status = 'COMPLETED', 
-        onboarding_completed = true,
         current_onboarding_step = NULL,
         tone_profile = 'friendly-shopkeeper',
         response_style = 'helpful',

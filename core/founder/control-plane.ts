@@ -196,8 +196,8 @@ export async function handleFounderTelegramMessage(
       const [counts] = await sql`
         SELECT 
           (SELECT COUNT(*)::int FROM public.chioma_instances WHERE billing_state = 'ACTIVE') AS active_tenants,
-          (SELECT COUNT(*)::int FROM public.employer_profiles WHERE onboarding_completed = true) AS onboarded,
-          (SELECT COUNT(*)::int FROM public.employer_profiles WHERE onboarding_completed = false) AS pending_onboard,
+          (SELECT COUNT(*)::int FROM public.employer_profiles WHERE onboarding_status = 'COMPLETED') AS onboarded,
+          (SELECT COUNT(*)::int FROM public.employer_profiles WHERE onboarding_status IS NULL OR onboarding_status != 'COMPLETED') AS pending_onboard,
           (SELECT COUNT(*)::int FROM public.message_ledger) AS total_messages,
           (SELECT COUNT(*)::int FROM public.delivery_queue WHERE status = 'PENDING') AS pending_delivery,
           (SELECT COUNT(*)::int FROM public.recovery_queue) AS recovery_queue
