@@ -34,15 +34,12 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({ ok: true }); // Return 200 to not reveal the endpoint exists
   }
 
-  // Acknowledge Telegram immediately
-  res.status(200).json({ ok: true });
-
   let config;
   try {
     config = validateConfig();
   } catch (err: unknown) {
     console.error("[TELEGRAM_WEBHOOK] CONFIG_INVALID:", String(err).slice(0, 100));
-    return;
+    return res.status(200).json({ ok: true });
   }
 
   const update = req.body as TelegramUpdate;
@@ -50,7 +47,7 @@ export default async function handler(req: any, res: any) {
 
   if (!message?.text || !message.chat?.id) {
     console.log("[TELEGRAM_WEBHOOK] NO_TEXT_MESSAGE: ignored");
-    return;
+    return res.status(200).json({ ok: true });
   }
 
   const chatId = String(message.chat.id);
@@ -68,7 +65,7 @@ export default async function handler(req: any, res: any) {
     } finally {
       await sql.end().catch(() => {});
     }
-    return;
+    return res.status(200).json({ ok: true });
   }
 
   try {
@@ -184,9 +181,11 @@ export default async function handler(req: any, res: any) {
     telemetry.complete("COMPLETED");
     console.log(`[TELEGRAM_WEBHOOK] LIFECYCLE_COMPLETE: trace=${trace.traceId} state=${result.deliveryContract?.deliveryState}`);
 
+    return res.status(200).json({ ok: true });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[TELEGRAM_WEBHOOK] EXECUTION_ERROR: ${msg}`);
+    return res.status(200).json({ ok: true });
   } finally {
     await sql.end().catch(() => {});
   }
