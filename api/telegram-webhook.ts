@@ -61,22 +61,46 @@ export default async function handler(req: any, res: any) {
   const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
   try {
-    let tenantId: string = process.env.TELEGRAM_TENANT_ID ?? "";
-    if (!tenantId) {
-      try {
-        const [firstActive] = await sql`
-          SELECT tenant_id FROM public.chioma_instances
-          WHERE billing_state = 'ACTIVE' AND credit_units > 0
-          ORDER BY created_at ASC
-          LIMIT 1
-        `;
-        tenantId = firstActive?.tenant_id ?? "my-first-biz";
-      } catch (err) {
-        console.warn("[TELEGRAM_WEBHOOK] Failed to query active tenant fallback, using my-first-biz:", String(err).slice(0, 100));
-        tenantId = "my-first-biz";
-      }
+    const isFounder = isFounderNumber(fromId);
+    let tenantId: string = isFounder 
+      ? (process.env.TELEGRAM_ADMIN_TENANT_ID ?? "chioma-admin")
+      : `tg-${chatId}`;
+
+    let instance = await resolveInstanceByTenant(sql, tenantId);
+
+    if (!instance) {
+      // First contact — provision a new tenant instance
+      const newTenantId = `tg-${chatId}`; // deterministic, stable tenant ID from Telegram chat ID
+      await sql`
+        INSERT INTO public.chioma_instances (
+          instance_id,
+          tenant_id,
+          whatsapp_phone_number,
+          whatsapp_phone_number_id,
+          billing_state,
+          credit_units,
+          business_model_version,
+          llm_provider,
+          llm_model,
+          memory_namespace
+        ) VALUES (
+          gen_random_uuid(),
+          ${newTenantId},
+          ${`tg:${chatId}`},
+          ${`tg:${chatId}`},
+          'ACTIVE',
+          50,
+          'v1',
+          ${process.env.LLM_PROVIDER ?? 'groq'},
+          'llama-3.3-70b-versatile',
+          ${newTenantId}
+        )
+        ON CONFLICT (tenant_id) DO NOTHING
+      `;
+      tenantId = newTenantId;
+      // Re-resolve after insert
+      instance = await resolveInstanceByTenant(sql, tenantId);
     }
-    const instance = await resolveInstanceByTenant(sql, tenantId);
 
     if (!instance) {
       console.log(`[TELEGRAM_WEBHOOK] INSTANCE_NOT_FOUND: tenant=${tenantId}`);
