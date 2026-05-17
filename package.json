@@ -9,19 +9,18 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "echo 'Vercel builds[] handles compilation'",
+    "build": "echo 'no-op: Vercel builds[] handles compilation'",
+    "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json",
     "db:push": "supabase db push --db-url \"$DATABASE_URL\"",
     "db:pull": "supabase db pull --db-url \"$DATABASE_URL\"",
     "db:reset": "supabase db reset --db-url \"$DATABASE_URL\"",
     "deploy:check": "node scripts/deploy-check.mjs",
     "overseer:check": "node scripts/overseer.mjs",
-    "build:webhook": "npm run typecheck",
+    "build:webhook": "tsc --noEmit --project tsconfig.json",
     "deploy:webhook": "cd apps/webhook && vercel deploy --prod",
-    "vercel:typecheck": "npm run typecheck",
-    "postinstall": "npm run build"
+    "vercel:typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {
     "@chioma/business-learning": "*",

@@ -2,10 +2,9 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/**/*.ts",
+      "src": "api/webhook.ts",
       "use": "@vercel/node",
       "config": {
-        "maxDuration": 60,
         "includeFiles": [
           "core/**",
           "infrastructure/**",
@@ -14,12 +13,86 @@
           "tsconfig.json"
         ]
       }
+    },
+    {
+      "src": "api/telegram-webhook.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "core/**",
+          "infrastructure/**",
+          "services/**",
+          "package.json",
+          "tsconfig.json"
+        ]
+      }
+    },
+    {
+      "src": "api/recovery-cron.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "core/**",
+          "infrastructure/**",
+          "services/**",
+          "package.json",
+          "tsconfig.json"
+        ]
+      }
+    },
+    {
+      "src": "api/health.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "infrastructure/**",
+          "package.json"
+        ]
+      }
+    },
+    {
+      "src": "api/simulate-message.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "core/**",
+          "infrastructure/**",
+          "services/**",
+          "package.json",
+          "tsconfig.json"
+        ]
+      }
+    },
+    {
+      "src": "api/debug-loop.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "core/**",
+          "infrastructure/**",
+          "services/**",
+          "package.json",
+          "tsconfig.json"
+        ]
+      }
+    },
+    {
+      "src": "api/ping.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "package.json"
+        ]
+      }
     }
   ],
-  "crons": [
-    {
-      "path": "/api/recovery-cron",
-      "schedule": "*/1 * * * *"
-    }
+  "routes": [
+    { "src": "/api/health",            "dest": "api/health.ts" },
+    { "src": "/api/webhook",           "dest": "api/webhook.ts" },
+    { "src": "/api/telegram-webhook",  "dest": "api/telegram-webhook.ts" },
+    { "src": "/api/recovery-cron",     "dest": "api/recovery-cron.ts" },
+    { "src": "/api/simulate-message",  "dest": "api/simulate-message.ts" },
+    { "src": "/api/debug-loop",        "dest": "api/debug-loop.ts" },
+    { "src": "/api/ping",              "dest": "api/ping.ts" }
   ]
 }
