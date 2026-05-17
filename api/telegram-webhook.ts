@@ -1,8 +1,11 @@
-// /api/telegram-webhook.ts
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-export default function handler(req, res) {
+export default function handler(
+  req: VercelRequest,
+  res: VercelResponse
+) {
   return res.status(200).json({
     ok: true,
-    source: "bare-function"
+    source: "telegram-webhook-alive"
   });
 }
