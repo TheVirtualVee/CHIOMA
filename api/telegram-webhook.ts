@@ -103,7 +103,6 @@ export default async function handler(req: any, res: any) {
           'llama-3.3-70b-versatile',
           ${newTenantId}
         )
-        ON CONFLICT (tenant_id) DO NOTHING
       `;
       tenantId = newTenantId;
       // Re-resolve after insert
