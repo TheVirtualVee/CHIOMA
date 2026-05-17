@@ -108,11 +108,11 @@ export class ExecutionKernel {
          WHERE tenant_id = ${input.tenantId} AND customer_phone = ${input.senderPhone}) as tone_state
     `;
 
-    const [onboardingStatus] = await sql`SELECT onboarding_completed FROM employer_profiles WHERE tenant_id = ${input.tenantId}`;
+    const [onboardingRow] = await sql`SELECT onboarding_status FROM employer_profiles WHERE tenant_id = ${input.tenantId}`;
     const [knowledge] = await sql`SELECT business_context FROM public.tenant_knowledge WHERE tenant_id = ${input.tenantId}`;
     
-    // If the profile row doesn't exist at all, or if onboarding_completed is false, they need onboarding
-    const needsOnboarding = !onboardingStatus || !onboardingStatus.onboarding_completed;
+    // If the profile row doesn't exist at all, or if onboarding_status is not COMPLETED, they need onboarding
+    const needsOnboarding = !onboardingRow || onboardingRow.onboarding_status !== 'COMPLETED';
     
     const isBriefCommand = input.messageText.toLowerCase().trim() === "/daily brief";
     const [activeBriefSession] = await sql`SELECT 1 FROM public.daily_brief_sessions WHERE tenant_id = ${input.tenantId} AND status = 'AWAITING_INPUT' LIMIT 1`;
