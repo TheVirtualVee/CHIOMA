@@ -1,6 +1,4 @@
-
-
-export type Actor = "CHIOMA" | "OWNER" | "NONE";
+export type Actor = "CHIOMA" | "OWNER" | "SYSTEM" | "NONE";
 export type ConversationMode =
   | "COLLABORATIVE"
   | "AUTONOMOUS"
@@ -9,13 +7,14 @@ export type ConversationMode =
 
 export type ConversationState = {
   tenantId: string;
-  chatId: string;
-  lastOwnerAt: number | null;
-  lastChiomaAt: number | null;
-  lastCustomerAt: number;
-  responseLockUntil: number | null;
+  customerPhone: string;
+  ownerLastSeen: number | null;
   ownerOnlineStatus: "online" | "away" | "offline";
-  escalationActive: boolean;
+  responseLockUntil: number | null;
+  lastChiomaAt: number | null;
+  lastOwnerAt: number | null;
+  messageCount: number;
+  escalationActive?: boolean;
 };
 
 export type ArbitrationDecision = {
@@ -24,69 +23,104 @@ export type ArbitrationDecision = {
 };
 
 // ============================================
+// TENANT RESOLUTION
+// ============================================
+
+export async function resolveTenantFromTelegram(
+  sql: any,
+  chatId: string,
+  botToken: string
+): Promise<string | null> {
+  // Step 1: Does this bot token belong to a tenant?
+  // We use chioma_instances for backward compatibility or tenant_instances
+  // For now we check tenant_instances
+  const [instance] = await sql`
+    SELECT tenant_id FROM tenant_instances
+    WHERE telegram_bot_token = ${botToken}
+  `;
+  
+  if (instance) return instance.tenant_id;
+  
+  // Step 2: Is this a direct owner chat (onboarding flow)?
+  const [ownerTenant] = await sql`
+    SELECT tenant_id FROM tenants
+    WHERE ${chatId} = ANY(owner_telegram_ids)
+  `;
+  
+  if (ownerTenant) return ownerTenant.tenant_id;
+  
+  // Step 3: Customer messaging - need business context
+  // For MVP: return first active tenant
+  const [defaultTenant] = await sql`
+    SELECT tenant_id FROM tenant_instances
+    WHERE billing_state = 'ACTIVE'
+    LIMIT 1
+  `;
+  
+  return defaultTenant?.tenant_id || null;
+}
+
+// ============================================
+// ACTOR DETECTION
+// ============================================
+
+export async function detectActor(
+  sql: any,
+  tenantId: string,
+  channelUserId: string
+): Promise<'owner' | 'customer' | 'unknown'> {
+  // Check if this user is an owner of this tenant
+  const [tenant] = await sql`
+    SELECT owner_telegram_ids FROM tenants
+    WHERE tenant_id = ${tenantId}
+  `;
+  
+  if (tenant && tenant.owner_telegram_ids && tenant.owner_telegram_ids.includes(channelUserId)) {
+    return 'owner';
+  }
+  
+  // Check if this is a known customer
+  const [customer] = await sql`
+    SELECT customer_phone FROM customer_memory
+    WHERE tenant_id = ${tenantId} AND customer_phone = ${channelUserId}
+  `;
+  
+  if (customer) return 'customer';
+  
+  return 'unknown';
+}
+
+// ============================================
 // STATE BUILDER (DB as source of truth)
 // ============================================
 
-export async function buildConversationState(
+export async function getConversationState(
   sql: any,
   tenantId: string,
-  chatId: string
+  customerPhone: string
 ): Promise<ConversationState> {
   const [instance] = await sql`
-    SELECT owner_last_seen,
-           response_lock_until,
-           owner_online_status
-    FROM chioma_instances
+    SELECT owner_last_seen, owner_online_status, response_lock_until
+    FROM tenant_instances
     WHERE tenant_id = ${tenantId}
   `;
-
-  const [lastOwner] = await sql`
-    SELECT created_at
-    FROM conversation_events
-    WHERE tenant_id = ${tenantId}
-      AND chat_id = ${chatId}
-      AND actor = 'owner'
-    ORDER BY created_at DESC
-    LIMIT 1
+  
+  const [memory] = await sql`
+    SELECT last_chioma_at, last_owner_at, message_count
+    FROM customer_memory
+    WHERE tenant_id = ${tenantId} AND customer_phone = ${customerPhone}
   `;
-
-  const [lastChioma] = await sql`
-    SELECT created_at
-    FROM conversation_events
-    WHERE tenant_id = ${tenantId}
-      AND chat_id = ${chatId}
-      AND actor = 'chioma'
-    ORDER BY created_at DESC
-    LIMIT 1
-  `;
-
-  const [lastCustomer] = await sql`
-    SELECT created_at
-    FROM conversation_events
-    WHERE tenant_id = ${tenantId}
-      AND chat_id = ${chatId}
-      AND actor = 'customer'
-    ORDER BY created_at DESC
-    LIMIT 1
-  `;
-
+  
   return {
     tenantId,
-    chatId,
-    lastOwnerAt: instance?.owner_last_seen
-      ? new Date(instance.owner_last_seen).getTime()
-      : null,
-    lastChiomaAt: lastChioma?.created_at
-      ? new Date(lastChioma.created_at).getTime()
-      : null,
-    lastCustomerAt: lastCustomer?.created_at
-      ? new Date(lastCustomer.created_at).getTime()
-      : Date.now(),
-    responseLockUntil: instance?.response_lock_until
-      ? new Date(instance.response_lock_until).getTime()
-      : null,
-    ownerOnlineStatus: instance?.owner_online_status ?? "offline",
-    escalationActive: false, // Will be set by caller after keyword detection
+    customerPhone,
+    ownerLastSeen: instance?.owner_last_seen?.getTime() || null,
+    ownerOnlineStatus: instance?.owner_online_status || 'offline',
+    responseLockUntil: instance?.response_lock_until?.getTime() || null,
+    lastChiomaAt: memory?.last_chioma_at?.getTime() || null,
+    lastOwnerAt: memory?.last_owner_at?.getTime() || null,
+    messageCount: memory?.message_count || 0,
+    escalationActive: false // Set dynamically by checkEscalation
   };
 }
 
@@ -151,22 +185,6 @@ export function resolveSpeaker(state: ConversationState): ArbitrationDecision {
 
   // Default fallback (should never reach here)
   return { actor: "CHIOMA", reason: "default_fallback" };
-}
-
-// ============================================
-// OWNER OVERRIDE LOCK
-// ============================================
-
-export async function applyOwnerOverrideLock(
-  sql: any,
-  tenantId: string,
-  lockSeconds: number = 10
-): Promise<void> {
-  await sql`
-    UPDATE chioma_instances
-    SET response_lock_until = NOW() + INTERVAL '${lockSeconds} seconds'
-    WHERE tenant_id = ${tenantId}
-  `;
 }
 
 // ============================================
