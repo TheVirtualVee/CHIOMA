@@ -2,7 +2,10 @@ import type postgres from "postgres";
 import { generateBusinessDraft, formatDraftForEmployer } from "../business-learning/index.js";
 
 const ONBOARDING_STEPS = [
-  { key: "business_name", question: "Hello! I'm CHIOMA. What is the name of your business?" },
+  {
+    key: "business_name",
+    question: `Hi! 👋 I'm CHIOMA — a digital business employee you can hire to handle your customer conversations on WhatsApp and Telegram.\n\nI work 24/7, remember every customer, and represent your business professionally.\n\nTo get started, what is the name of your business?`
+  },
   { key: "social_learning", question: "Nice! Please send me links to your Instagram, TikTok, or Website so I can learn about your products, tone, and pricing." },
   { key: "validate_draft", question: "Does this look correct to you? Please tell me what I should fix or add!" },
   { key: "escalation_contact", question: "Almost done. If a customer has an urgent request, what phone number should I notify?" }
