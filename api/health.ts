@@ -33,6 +33,8 @@ export default async function handler(_req: any, res: any) {
     telegramBotTokenPrefix: process.env.TELEGRAM_BOT_TOKEN ? process.env.TELEGRAM_BOT_TOKEN.slice(0, 8) : null,
     telegramFounderIdPresent: !!process.env.TELEGRAM_FOUNDER_ID,
     telegramAdminUserIdPresent: !!process.env.TELEGRAM_ADMIN_USER_ID,
+    telegramTenantIdPresent: !!process.env.TELEGRAM_TENANT_ID,
+    telegramTenantId: process.env.TELEGRAM_TENANT_ID || null,
     db: dbStatus,
     version: "v1.3-stable",
     ts: new Date().toISOString(),
