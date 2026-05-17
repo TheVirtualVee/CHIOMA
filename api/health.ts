@@ -30,6 +30,7 @@ export default async function handler(_req: any, res: any) {
     verifyTokenPresent: !!process.env.WHATSAPP_VERIFY_TOKEN,
     llmConfigured: !!process.env.LLM_API_KEY,
     telegramBotTokenPresent: !!process.env.TELEGRAM_BOT_TOKEN,
+    telegramBotTokenPrefix: process.env.TELEGRAM_BOT_TOKEN ? process.env.TELEGRAM_BOT_TOKEN.slice(0, 8) : null,
     telegramFounderIdPresent: !!process.env.TELEGRAM_FOUNDER_ID,
     telegramAdminUserIdPresent: !!process.env.TELEGRAM_ADMIN_USER_ID,
     db: dbStatus,
