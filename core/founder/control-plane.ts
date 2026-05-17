@@ -181,17 +181,116 @@ export function isFounderNumber(phoneOrId: string): boolean {
 export async function handleFounderTelegramMessage(
   chatId: string,
   text: string,
-  botToken: string
+  botToken: string,
+  sql?: any
 ): Promise<void> {
-  const pingText = `👑 *SUPREME ACCESS GRANTED*\n\nWelcome, Founder. The CHIOMA Real-time Kernel is online and monitoring all operations.\n\n*System Integrity:* 100/100\n*Active Tenants:* (Querying...)\n\nYou have supreme oversight.`;
+  const cmd = text.trim().toLowerCase();
+
+  let reply: string;
+
+  try {
+    if (!sql) {
+      throw new Error("Database client not initialized");
+    }
+    if (cmd === "/status" || cmd === "status") {
+      const [counts] = await sql`
+        SELECT 
+          (SELECT COUNT(*)::int FROM public.chioma_instances WHERE billing_state = 'ACTIVE') AS active_tenants,
+          (SELECT COUNT(*)::int FROM public.employer_profiles WHERE onboarding_completed = true) AS onboarded,
+          (SELECT COUNT(*)::int FROM public.employer_profiles WHERE onboarding_completed = false) AS pending_onboard,
+          (SELECT COUNT(*)::int FROM public.message_ledger) AS total_messages,
+          (SELECT COUNT(*)::int FROM public.delivery_queue WHERE status = 'PENDING') AS pending_delivery,
+          (SELECT COUNT(*)::int FROM public.recovery_queue) AS recovery_queue
+      `;
+      reply = `📊 *CHIOMA SYSTEM STATUS*\n\n` +
+        `Active tenants: ${counts.active_tenants}\n` +
+        `Fully onboarded: ${counts.onboarded}\n` +
+        `Pending onboarding: ${counts.pending_onboard}\n` +
+        `Total messages processed: ${counts.total_messages}\n` +
+        `Pending delivery: ${counts.pending_delivery}\n` +
+        `Recovery queue: ${counts.recovery_queue}`;
+
+    } else if (cmd.startsWith("/tenants") || cmd === "tenants") {
+      const rows = await sql`
+        SELECT tenant_id, billing_state, credit_units, created_at
+        FROM public.chioma_instances
+        ORDER BY created_at DESC
+        LIMIT 20
+      `;
+      if (rows.length === 0) {
+        reply = "No tenants registered yet.";
+      } else {
+        reply = `🏢 *TENANTS (last 20)*\n\n` +
+          rows.map((r: any) => 
+            `• ${r.tenant_id} | ${r.billing_state} | ${r.credit_units} credits`
+          ).join("\n");
+      }
+
+    } else if (cmd.startsWith("/topup ")) {
+      // /topup tg-123456789 100
+      const parts = cmd.split(" ");
+      const targetTenant = parts[1];
+      const amount = parseInt(parts[2] ?? "50", 10);
+      if (!targetTenant || isNaN(amount)) {
+        reply = "Usage: /topup <tenant_id> <credits>";
+      } else {
+        await sql`
+          UPDATE public.chioma_instances 
+          SET credit_units = credit_units + ${amount}
+          WHERE tenant_id = ${targetTenant}
+        `;
+        reply = `✅ Added ${amount} credits to ${targetTenant}`;
+      }
+
+    } else if (cmd.startsWith("/suspend ")) {
+      const targetTenant = cmd.split(" ")[1];
+      if (!targetTenant) {
+        reply = "Usage: /suspend <tenant_id>";
+      } else {
+        await sql`
+          UPDATE public.chioma_instances 
+          SET billing_state = 'PAUSED'
+          WHERE tenant_id = ${targetTenant}
+        `;
+        reply = `⏸️ Suspended ${targetTenant}`;
+      }
+
+    } else if (cmd.startsWith("/activate ")) {
+      const targetTenant = cmd.split(" ")[1];
+      if (!targetTenant) {
+        reply = "Usage: /activate <tenant_id>";
+      } else {
+        await sql`
+          UPDATE public.chioma_instances 
+          SET billing_state = 'ACTIVE'
+          WHERE tenant_id = ${targetTenant}
+        `;
+        reply = `▶️ Activated ${targetTenant}`;
+      }
+
+    } else if (cmd === "/help" || cmd === "help") {
+      reply = `👑 *CHIOMA FOUNDER COMMANDS*\n\n` +
+        `/status — system overview\n` +
+        `/tenants — list all tenants\n` +
+        `/topup <tenant_id> <credits> — add credits\n` +
+        `/suspend <tenant_id> — pause a tenant\n` +
+        `/activate <tenant_id> — resume a tenant\n` +
+        `/help — this menu`;
+
+    } else {
+      reply = `👑 Founder access confirmed.\nType /help for available commands.`;
+    }
+  } catch (err: unknown) {
+    reply = `⚠️ Command failed: ${String(err).slice(0, 200)}`;
+  }
 
   await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       chat_id: chatId,
-      text: pingText,
-      parse_mode: "HTML"
+      text: reply,
+      parse_mode: "Markdown"
     })
   });
 }

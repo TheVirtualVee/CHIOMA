@@ -51,14 +51,18 @@ export default async function handler(req: any, res: any) {
   const text = message.text.trim();
   const telegramMessageId = `tg_${message.message_id}`;
 
+  const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
+
   // 👑 FOUNDER CONTROL PLANE GATE
   if (isFounderNumber(fromId)) {
     console.log("[TELEGRAM_WEBHOOK] FOUNDER_MESSAGE: routing to control plane");
-    await handleFounderTelegramMessage(chatId, text, config.TELEGRAM_BOT_TOKEN ?? "");
+    try {
+      await handleFounderTelegramMessage(chatId, text, config.TELEGRAM_BOT_TOKEN ?? "", sql);
+    } finally {
+      await sql.end().catch(() => {});
+    }
     return;
   }
-
-  const sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
   try {
     const isFounder = isFounderNumber(fromId);
