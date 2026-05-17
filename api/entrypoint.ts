@@ -8,10 +8,17 @@ import { resolveTenantFromTelegram } from "../core/arbitration/engine.js";
 export default async function handler(req: any, res: any) {
   res.status(200).json({ ok: true });
 
+  const config = validateConfig();
+
+  // Validate webhook secret
+  const secretHeader = req.headers['x-telegram-bot-api-secret-token'];
+  if (process.env.NODE_ENV === 'production' && secretHeader !== process.env.TELEGRAM_WEBHOOK_SECRET) {
+    console.warn("[ENTRYPOINT] INVALID_SECRET from", req.headers['x-forwarded-for']);
+    return res.status(200).json({ ok: true });
+  }
+
   const event = await normalizeRequest(req.body);
   if (!event) return;
-
-  const config = validateConfig();
 
   setImmediate(async () => {
     let sql: any;
