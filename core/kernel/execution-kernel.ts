@@ -110,7 +110,9 @@ export class ExecutionKernel {
 
     const [onboardingStatus] = await sql`SELECT onboarding_completed FROM employer_profiles WHERE tenant_id = ${input.tenantId}`;
     const [knowledge] = await sql`SELECT business_context FROM public.tenant_knowledge WHERE tenant_id = ${input.tenantId}`;
-    const needsOnboarding = onboardingStatus && !onboardingStatus.onboarding_completed;
+    
+    // If the profile row doesn't exist at all, or if onboarding_completed is false, they need onboarding
+    const needsOnboarding = !onboardingStatus || !onboardingStatus.onboarding_completed;
     
     const isBriefCommand = input.messageText.toLowerCase().trim() === "/daily brief";
     const [activeBriefSession] = await sql`SELECT 1 FROM public.daily_brief_sessions WHERE tenant_id = ${input.tenantId} AND status = 'AWAITING_INPUT' LIMIT 1`;
