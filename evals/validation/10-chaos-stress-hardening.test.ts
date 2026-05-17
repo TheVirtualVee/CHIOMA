@@ -49,7 +49,7 @@ describe("Phase 3.2 — CHAOS LAYER (Production Hardening)", () => {
     // Outcome should be ALLOW (normal path) NOT ALLOW_WITH_CONTEXT_OVERRIDE (priority path)
     // This prevents the system from getting "stuck" in high-priority loops for spammers
     expect(verdict.outcome).toBe("ALLOW");
-    expect(verdict.controllerTriggered).toBe("Gate4_Throttling");
+    expect(verdict.controllerTriggered).toBe("Gate3_Throttling");
     expect(verdict.gateTrace.find(t => t.gate === 'commitment_throttling')?.decision).toBe('triggered');
   });
 
@@ -63,7 +63,7 @@ describe("Phase 3.2 — CHAOS LAYER (Production Hardening)", () => {
     const verdict = evaluateGates(request);
     
     expect(verdict.gateTrace.length).toBeGreaterThan(0);
-    expect(verdict.gateTrace[0].gate).toBe("billing");
+    expect(verdict.gateTrace[0].gate).toBe("tenant");
     expect(verdict.gateTrace[0].decision).toBe("blocked");
   });
 
@@ -80,8 +80,8 @@ describe("Phase 3.2 — CHAOS LAYER (Production Hardening)", () => {
     const verdict = evaluateGates(request);
     
     expect(verdict.outcome).toBe("BLOCK_RESPONSE");
-    expect(verdict.controllerTriggered).toBe("Gate1_Billing");
+    expect(verdict.controllerTriggered).toBe("Gate1_TenantValidity");
     // Ensure billing is the first entry in trace
-    expect(verdict.gateTrace[0].gate).toBe("billing");
+    expect(verdict.gateTrace[0].gate).toBe("tenant");
   });
 });

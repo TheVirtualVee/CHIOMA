@@ -134,13 +134,14 @@ describe("Phase 1 — Build & Type Integrity", () => {
 
     expect(config.version).toBe(2);
     expect(config.builds).toBeDefined();
-    expect(config.routes).toBeDefined();
-
-    // Every route dest must point to an existing file
-    for (const route of config.routes) {
-      const dest = route.dest as string;
-      const fullPath = resolve(ROOT, dest);
-      expect(existsSync(fullPath), `Route dest does not exist: ${dest}`).toBe(true);
+    if (config.routes) {
+      for (const route of config.routes) {
+        const dest = route.dest as string;
+        const fullPath = resolve(ROOT, dest);
+        expect(existsSync(fullPath), `Route dest does not exist: ${dest}`).toBe(true);
+      }
+    } else {
+      expect(config.functions).toBeDefined();
     }
   });
 

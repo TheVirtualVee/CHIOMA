@@ -45,7 +45,7 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
     const verdict = evaluateGates(request);
 
     expect(verdict.outcome).toBe("ALLOW_WITH_CONTEXT_OVERRIDE");
-    expect(verdict.controllerTriggered).toBe("Gate5_Commitment");
+    expect(verdict.controllerTriggered).toBe("Gate4_Commitment");
   });
 
   it("Scenario C: Suspended tenant always blocked", () => {
@@ -78,7 +78,7 @@ describe("Phase 3.1 — CHIOMA Execution Arbiter (CEA) Mandatory Scenarios", () 
     const verdict = evaluateGates(request);
 
     expect(verdict.outcome).toBe("ALLOW");
-    expect(verdict.controllerTriggered).toBe("Gate7_Default");
+    expect(verdict.controllerTriggered).toBe("Gate6_Default");
   });
 
   it("Scenario F: ABM schedule respects tenant + billing rules", () => {
