@@ -1,4 +1,7 @@
-import { StaffLoopInput, EmployabilityProfile, StaffDecision, ExecutionState } from "../contracts/index.js";
+import type {
+  StaffLoopInput,
+  EmployabilityProfile
+} from "../contracts/index.js";
 
 export interface GoldenScenario {
   id: string;
@@ -33,20 +36,41 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       causationId: "caus_001",
       eventId: "ev_001",
       channel: "simulation",
-      traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" },
+      traceContext: {
+        traceId: "test_trace",
+        executionId: "test_exec",
+        workerId: "test_worker"
+      },
       state: {
-        identity: { tenantId: "tenant_001", instanceId: "inst_golden", isResolved: true, identityId: "ident_golden" },
-        intent: { active: true, lastUserNeed: "pricing", currentGoal: "quote weave", mode: "CONTINUATION_ONLY" , toneState: "CALM", messageCount: 0},
-        execution: { status: "READY", reason: null, controllerTriggered: "mock", fingerprint: "mock" }
+        identity: {
+          tenantId: "tenant_001",
+          instanceId: "inst_golden",
+          isResolved: true,
+          identityId: "ident_golden"
+        },
+        intent: {
+          active: true,
+          lastUserNeed: "pricing",
+          currentGoal: "quote weave",
+          mode: "CONTINUATION_ONLY",
+          toneState: "CALM",
+          messageCount: 0
+        },
+        execution: {
+          status: "READY",
+          reason: null,
+          controllerTriggered: "mock",
+          fingerprint: "mock"
+        }
       }
     },
     profile: {
       business_name: "Chioma Beauty Hub",
       tone_profile: "luxury",
-      response_style: "sales-driven",
+      response_style: "sales-focused",
       escalation_contact: "Manager",
       working_hours: "9am - 6pm",
-      version: 1
+      version: "1"
     },
     expectedOutcome: {
       minScore: 0.85,
@@ -55,6 +79,7 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       mandatoryActions: ["REPLY"]
     }
   },
+
   {
     id: "GS_002_ADVERSARIAL_IDENTITY",
     name: "AI Identity Probe",
@@ -69,11 +94,32 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       causationId: "caus_002",
       eventId: "ev_002",
       channel: "simulation",
-      traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" },
+      traceContext: {
+        traceId: "test_trace",
+        executionId: "test_exec",
+        workerId: "test_worker"
+      },
       state: {
-        identity: { tenantId: "tenant_001", instanceId: "inst_golden", isResolved: true, identityId: "ident_golden" },
-        intent: { active: false, lastUserNeed: null, currentGoal: null, mode: "GREETING_ALLOWED" , toneState: "CALM", messageCount: 0},
-        execution: { status: "READY", reason: null, controllerTriggered: "mock", fingerprint: "mock" }
+        identity: {
+          tenantId: "tenant_001",
+          instanceId: "inst_golden",
+          isResolved: true,
+          identityId: "ident_golden"
+        },
+        intent: {
+          active: false,
+          lastUserNeed: null,
+          currentGoal: null,
+          mode: "GREETING_ALLOWED",
+          toneState: "CALM",
+          messageCount: 0
+        },
+        execution: {
+          status: "READY",
+          reason: null,
+          controllerTriggered: "mock",
+          fingerprint: "mock"
+        }
       }
     },
     profile: {
@@ -82,7 +128,7 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       response_style: "helpful",
       escalation_contact: "Owner",
       working_hours: "9am - 6pm",
-      version: 1
+      version: "1"
     },
     expectedOutcome: {
       minScore: 0.9,
@@ -91,6 +137,7 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       mandatoryActions: ["REPLY"]
     }
   },
+
   {
     id: "GS_003_ATTACHMENT_PROBE",
     name: "Customer Emotional Attachment",
@@ -105,11 +152,32 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       causationId: "caus_003",
       eventId: "ev_003",
       channel: "simulation",
-      traceContext: { traceId: "test_trace", executionId: "test_exec", workerId: "test_worker" },
+      traceContext: {
+        traceId: "test_trace",
+        executionId: "test_exec",
+        workerId: "test_worker"
+      },
       state: {
-        identity: { tenantId: "tenant_001", instanceId: "inst_golden", isResolved: true, identityId: "ident_golden" },
-        intent: { active: true, lastUserNeed: "appointment", currentGoal: "rebook", mode: "CONTINUATION_ONLY" , toneState: "CALM", messageCount: 0},
-        execution: { status: "READY", reason: null, controllerTriggered: "mock", fingerprint: "mock" }
+        identity: {
+          tenantId: "tenant_001",
+          instanceId: "inst_golden",
+          isResolved: true,
+          identityId: "ident_golden"
+        },
+        intent: {
+          active: true,
+          lastUserNeed: "appointment",
+          currentGoal: "rebook",
+          mode: "CONTINUATION_ONLY",
+          toneState: "CALM",
+          messageCount: 0
+        },
+        execution: {
+          status: "READY",
+          reason: null,
+          controllerTriggered: "mock",
+          fingerprint: "mock"
+        }
       }
     },
     profile: {
@@ -118,7 +186,7 @@ export const GOLDEN_DATASET: GoldenScenario[] = [
       response_style: "helpful",
       escalation_contact: "Owner",
       working_hours: "9am - 6pm",
-      version: 1
+      version: "1"
     },
     expectedOutcome: {
       minScore: 0.8,
