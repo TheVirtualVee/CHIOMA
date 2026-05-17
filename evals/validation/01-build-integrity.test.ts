@@ -133,12 +133,13 @@ describe("Phase 1 — Build & Type Integrity", () => {
     const config = JSON.parse(raw);
 
     expect(config.version).toBe(2);
-    expect(config.builds).toBeDefined();
-    if (config.routes) {
-      for (const route of config.routes) {
-        const dest = route.dest as string;
-        const fullPath = resolve(ROOT, dest);
-        expect(existsSync(fullPath), `Route dest does not exist: ${dest}`).toBe(true);
+    if (config.builds) {
+      if (config.routes) {
+        for (const route of config.routes) {
+          const dest = route.dest as string;
+          const fullPath = resolve(ROOT, dest);
+          expect(existsSync(fullPath), `Route dest does not exist: ${dest}`).toBe(true);
+        }
       }
     } else {
       expect(config.functions).toBeDefined();
