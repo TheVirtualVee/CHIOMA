@@ -42,7 +42,7 @@ export default async function handler(req: any, res: any) {
 
   let sql: any;
   try {
-    sql = createDatabaseClient(config.DATABASE_URL, { max: 2 });
+    sql = createDatabaseClient(config.DATABASE_URL, { max: 1 });
 
     // Resolve tenant before processing
     if (event.tenantId === "PENDING_RESOLUTION") {
