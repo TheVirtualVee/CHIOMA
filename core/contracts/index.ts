@@ -3,6 +3,8 @@
  * SINGLE SOURCE OF TRUTH — STRICT LAYERED MODEL
  */
 
+import type { TraceContext } from "./telemetry.js";
+
 /* =========================================================
    1. CORE RUNTIME MODELS (SYSTEM TRUTH)
    ========================================================= */
@@ -15,10 +17,12 @@ export type ChiomaInstance = {
   billing_state: "ACTIVE" | "PAUSED" | "EXPIRED";
   credit_units: number;
   business_model_version: string;
+
   llm_config: {
     provider: "openai" | "groq" | "anthropic" | "openrouter";
     model: string;
   };
+
   memory_namespace: string;
 };
 
@@ -36,20 +40,24 @@ export type ExecutionState = {
 
   intent: {
     active: boolean;
+
     mode:
       | "GREETING_ALLOWED"
       | "CONTINUATION_ONLY"
       | "COMMITMENT_RESOLUTION"
       | "ONBOARDING"
       | "DAILY_BRIEF";
+
     currentGoal: string | null;
     lastUserNeed: string | null;
+
     toneState: string;
     messageCount: number;
   };
 
   execution: {
     status: "READY" | "DEGRADED" | "BLOCKED";
+
     reason: string | null;
     controllerTriggered: string;
     fingerprint: string;
@@ -75,16 +83,22 @@ export type ExecutionRequest = {
     | "daily_brief";
 
   commitmentPending: boolean;
+
   creditBalance: number;
   creditRequired: number;
 
-  tenantStatus: "active" | "suspended" | "trial_expired";
+  tenantStatus:
+    | "active"
+    | "suspended"
+    | "trial_expired";
 
   safetyFlags: string[];
+
   requestedAt: number;
   fingerprint: string;
 
   activeCommitmentCount: number;
+
   identityId: string;
   schedulerConflict: boolean;
 };
@@ -108,6 +122,7 @@ export type ArbiterVerdict = {
     | "QUEUE_FOR_RECOVERY";
 
   reason: string;
+
   controllerTriggered: string;
   gateTrace: GateTraceEntry[];
 
@@ -126,6 +141,7 @@ export type ArbiterVerdict = {
 
 export type DeliveryContract = {
   traceId: string;
+
   tenantId: string;
   instanceId: string;
 
@@ -152,6 +168,7 @@ export type DeliveryContract = {
 
 export type StaffLoopResult = {
   responseText: string;
+
   responseType:
     | "conversation"
     | "error_degraded"
@@ -160,6 +177,7 @@ export type StaffLoopResult = {
 
   delivered: boolean;
   latencyMs: number;
+
   correlationId: string;
 
   decision?: StaffDecision;
@@ -178,7 +196,12 @@ export type StaffAction = {
     | "IGNORE"
     | "PROMISE_MADE";
 
-  urgency: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  urgency:
+    | "LOW"
+    | "MEDIUM"
+    | "HIGH"
+    | "URGENT";
+
   revenue_weight: number;
 
   need_classification:
@@ -195,15 +218,24 @@ export type StaffAction = {
 };
 
 export type StaffDecision = {
-  intent_type: "SALES" | "SUPPORT" | "COMPLAINT" | "INQUIRY" | "UNKNOWN";
+  intent_type:
+    | "SALES"
+    | "SUPPORT"
+    | "COMPLAINT"
+    | "INQUIRY"
+    | "UNKNOWN";
 
   confidence: number;
+
   response_payload: string;
 
   required_actions: StaffAction[];
   safety_flags: string[];
 
-  source: "LLM" | "RULE_OVERRIDE" | "REPLAY";
+  source:
+    | "LLM"
+    | "RULE_OVERRIDE"
+    | "REPLAY";
 
   decision_hash: string;
   customer_need: string;
@@ -211,6 +243,7 @@ export type StaffDecision = {
 
 export type Commitment = {
   id: string;
+
   tenantId: string;
   aggregateId: string;
 
@@ -228,6 +261,7 @@ export type Commitment = {
 
   deadlineAt: string;
   createdAt: string;
+
   resolvedAt?: string;
 
   correlationId: string;
@@ -244,5 +278,69 @@ export type LatencyBreakdown = {
   arbitrationMs?: number;
   inferenceMs?: number;
   dispatchMs?: number;
+
   totalMs: number;
+};
+
+/* =========================================================
+   7. STAFF LOOP + BUSINESS CONTEXT
+   ========================================================= */
+
+export type StaffLoopInput = {
+  messageId: string;
+
+  tenantId: string;
+  instanceId: string;
+
+  senderPhone: string;
+  messageText: string;
+
+  correlationId: string;
+  causationId: string;
+  eventId: string;
+
+  channel:
+    | "whatsapp"
+    | "telegram"
+    | "simulation"
+    | "sms"
+    | "web";
+
+  state: ExecutionState;
+
+  traceContext?: TraceContext;
+
+  snapshotId?: string;
+  instance?: ChiomaInstance;
+};
+
+export type EmployabilityProfile = {
+  business_name: string;
+
+  tone_profile:
+    | "formal"
+    | "casual"
+    | "friendly-shopkeeper"
+    | "luxury"
+    | "warm-professional";
+
+  escalation_contact: string;
+  working_hours: string;
+
+  response_style:
+    | "helpful"
+    | "sales-focused"
+    | "service-focused";
+
+  // compatibility-safe
+  version?: string | number;
+};
+
+export type BusinessDailyState = {
+  tenantId: string;
+  snapshotId: string;
+
+  facts: Record<string, unknown>;
+
+  lockedAt: string;
 };
