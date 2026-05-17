@@ -40,7 +40,7 @@ export async function resolveTenantFromTelegram(
   botToken: string
 ): Promise<string | null> {
   const [instance] = await sql`
-    SELECT tenant_id FROM tenant_instances
+    SELECT tenant_id FROM chioma_instances
     WHERE telegram_bot_token = ${botToken}
   `;
   if (instance) return instance.tenant_id;
@@ -52,7 +52,7 @@ export async function resolveTenantFromTelegram(
   if (ownerTenant) return ownerTenant.tenant_id;
   
   const [defaultTenant] = await sql`
-    SELECT tenant_id FROM tenant_instances
+    SELECT tenant_id FROM chioma_instances
     WHERE billing_state = 'ACTIVE'
     LIMIT 1
   `;
@@ -102,7 +102,7 @@ export async function getConversationState(
   
   const [instance] = await sql`
     SELECT owner_last_seen, response_lock_until
-    FROM tenant_instances
+    FROM chioma_instances
     WHERE tenant_id = ${tenantId}
   `;
   

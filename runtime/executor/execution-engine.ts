@@ -24,7 +24,7 @@ async function handleOwner(sql: any, event: RuntimeEvent, config: any) {
   console.log(`[EXECUTION] Owner event received: ${event.channelUserId}`);
   
   await sql`
-    UPDATE tenant_instances
+    UPDATE chioma_instances
     SET owner_last_seen = NOW(), owner_online_status = 'online', response_lock_until = NOW() + INTERVAL '10 seconds'
     WHERE tenant_id = ${event.tenantId}
   `;
