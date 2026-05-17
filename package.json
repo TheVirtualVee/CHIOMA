@@ -9,10 +9,10 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "echo 'Vercel builds[] handles compilation'",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.json",
     "db:push": "supabase db push --db-url \"$DATABASE_URL\"",
     "db:pull": "supabase db pull --db-url \"$DATABASE_URL\"",
     "db:reset": "supabase db reset --db-url \"$DATABASE_URL\"",
