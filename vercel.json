@@ -6,22 +6,6 @@
       "schedule": "*/1 * * * *"
     }
   ],
-  "builds": [
-    {
-      "src": "api/*.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": [
-          "apps/**",
-          "core/**",
-          "infrastructure/**",
-          "services/**",
-          "package.json",
-          "tsconfig.json"
-        ]
-      }
-    }
-  ],
   "functions": {
     "api/webhook.ts": { "maxDuration": 60 },
     "api/telegram-webhook.ts": { "maxDuration": 60 },
