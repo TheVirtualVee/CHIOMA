@@ -28,7 +28,6 @@ export type ChiomaInstance = {
 
 /**
  * EXECUTION STATE (SINGLE SOURCE OF TRUTH PER TURN)
- * This is the ONLY object the runtime reasoning layer should trust.
  */
 export type ExecutionState = {
   identity: {
@@ -57,7 +56,6 @@ export type ExecutionState = {
 
   execution: {
     status: "READY" | "DEGRADED" | "BLOCKED";
-
     reason: string | null;
     controllerTriggered: string;
     fingerprint: string;
@@ -68,10 +66,10 @@ export type ExecutionState = {
   };
 };
 
-/**
- * INGRESS DTO (NOT A SOURCE OF TRUTH)
- * Only used to build ExecutionState
- */
+/* =========================================================
+   2. INGRESS DTO
+   ========================================================= */
+
 export type ExecutionRequest = {
   tenantId: string;
   instanceId: string;
@@ -87,10 +85,7 @@ export type ExecutionRequest = {
   creditBalance: number;
   creditRequired: number;
 
-  tenantStatus:
-    | "active"
-    | "suspended"
-    | "trial_expired";
+  tenantStatus: "active" | "suspended" | "trial_expired";
 
   safetyFlags: string[];
 
@@ -104,13 +99,21 @@ export type ExecutionRequest = {
 };
 
 /* =========================================================
-   2. ARBITRATION LAYER
+   3. ARBITRATION LAYER
    ========================================================= */
 
 export type GateTraceEntry = {
   gate: string;
   decision: "passed" | "triggered" | "blocked";
   reason?: string;
+};
+
+export type LatencyBreakdown = {
+  identityMs?: number;
+  arbitrationMs?: number;
+  inferenceMs?: number;
+  dispatchMs?: number;
+  totalMs: number;
 };
 
 export type ArbiterVerdict = {
@@ -122,7 +125,6 @@ export type ArbiterVerdict = {
     | "QUEUE_FOR_RECOVERY";
 
   reason: string;
-
   controllerTriggered: string;
   gateTrace: GateTraceEntry[];
 
@@ -136,7 +138,7 @@ export type ArbiterVerdict = {
 };
 
 /* =========================================================
-   3. DELIVERY LAYER
+   4. DELIVERY LAYER
    ========================================================= */
 
 export type DeliveryContract = {
@@ -163,7 +165,7 @@ export type DeliveryContract = {
 };
 
 /* =========================================================
-   4. STAFF LOOP OUTPUT
+   5. STAFF LOOP OUTPUT
    ========================================================= */
 
 export type StaffLoopResult = {
@@ -185,7 +187,7 @@ export type StaffLoopResult = {
 };
 
 /* =========================================================
-   5. DOMAIN MODEL (BUSINESS INTELLIGENCE)
+   6. DOMAIN MODEL
    ========================================================= */
 
 export type StaffAction = {
@@ -196,11 +198,7 @@ export type StaffAction = {
     | "IGNORE"
     | "PROMISE_MADE";
 
-  urgency:
-    | "LOW"
-    | "MEDIUM"
-    | "HIGH"
-    | "URGENT";
+  urgency: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
   revenue_weight: number;
 
@@ -218,12 +216,7 @@ export type StaffAction = {
 };
 
 export type StaffDecision = {
-  intent_type:
-    | "SALES"
-    | "SUPPORT"
-    | "COMPLAINT"
-    | "INQUIRY"
-    | "UNKNOWN";
+  intent_type: "SALES" | "SUPPORT" | "COMPLAINT" | "INQUIRY" | "UNKNOWN";
 
   confidence: number;
 
@@ -232,10 +225,7 @@ export type StaffDecision = {
   required_actions: StaffAction[];
   safety_flags: string[];
 
-  source:
-    | "LLM"
-    | "RULE_OVERRIDE"
-    | "REPLAY";
+  source: "LLM" | "RULE_OVERRIDE" | "REPLAY";
 
   decision_hash: string;
   customer_need: string;
@@ -243,7 +233,6 @@ export type StaffDecision = {
 
 export type Commitment = {
   id: string;
-
   tenantId: string;
   aggregateId: string;
 
@@ -261,7 +250,6 @@ export type Commitment = {
 
   deadlineAt: string;
   createdAt: string;
-
   resolvedAt?: string;
 
   correlationId: string;
@@ -270,20 +258,7 @@ export type Commitment = {
 };
 
 /* =========================================================
-   6. SUPPORT MODELS
-   ========================================================= */
-
-export type LatencyBreakdown = {
-  identityMs?: number;
-  arbitrationMs?: number;
-  inferenceMs?: number;
-  dispatchMs?: number;
-
-  totalMs: number;
-};
-
-/* =========================================================
-   7. STAFF LOOP + BUSINESS CONTEXT
+   7. STAFF LOOP INPUT + BUSINESS CONTEXT
    ========================================================= */
 
 export type StaffLoopInput = {
@@ -299,12 +274,7 @@ export type StaffLoopInput = {
   causationId: string;
   eventId: string;
 
-  channel:
-    | "whatsapp"
-    | "telegram"
-    | "simulation"
-    | "sms"
-    | "web";
+  channel: "whatsapp" | "telegram" | "simulation" | "sms" | "web";
 
   state: ExecutionState;
 
@@ -332,15 +302,22 @@ export type EmployabilityProfile = {
     | "sales-focused"
     | "service-focused";
 
-  // compatibility-safe
-  version?: string | number;
+  version?: string | number; // FIX: prevents TS incompatibility
 };
 
 export type BusinessDailyState = {
   tenantId: string;
   snapshotId: string;
 
-  facts: Record<string, unknown>;
+  inventory?: Array<{
+    item: string;
+    count: number;
+    price: number;
+  }>;
 
+  promotions?: string[];
+  active_rules?: string[];
+
+  facts: Record<string, unknown>;
   lockedAt: string;
 };
