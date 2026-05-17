@@ -71,14 +71,14 @@ describe('APEX ARBITRATION CONSTITUTION v1.0', () => {
     expect(result.reason).toBe('owner_online_collaborative_assist');
   });
 
-  test('RULE 6: UNKNOWN actor forces NONE', () => {
+  test('RULE 6: UNKNOWN actor defaults to CHIOMA', () => {
     const input: ArbitrationInput = { 
       ...baseInput, 
       actorClassification: 'unknown'
     };
     const result = ARBITRATE(input);
-    expect(result.actor).toBe('NONE');
-    expect(result.reason).toBe('unknown_actor_suppression');
+    expect(result.actor).toBe('CHIOMA');
+    expect(result.reason).toBe('unknown_actor_default_to_customer');
   });
 
   test('RULE 7: SYSTEM events pass through', () => {

@@ -16,3 +16,8 @@
 - **Risk**: The `computeState` function in the Kernel is heavily dependent on the database. If the DB is under load, state computation fails, triggering a `DEGRADED` response even for simple greetings.
 - **Guard**: Implement a lightweight local cache for Tenant/Instance metadata to allow greeting bypass even during DB brownouts.
 - **Status**: TBD.
+
+### 4. Unknown Actor Bot Silence [DISCOVERED: 2026-05-17]
+- **Risk**: New customers not in `customer_memory` are classified as 'unknown'. Rule 6 of the Arbitration engine suppressed unknown actors to prevent spam/accidents, but this caused CHIOMA to remain completely silent to any new user messaging for the first time.
+- **Guard**: Unknown actors now default to the customer path (mapped to CHIOMA) instead of NONE state suppression.
+- **Status**: Resolved.

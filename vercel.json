@@ -29,6 +29,20 @@
       }
     },
     {
+      "src": "api/telegram-webhook.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "core/**",
+          "infrastructure/**",
+          "services/**",
+          "runtime/**",
+          "package.json",
+          "tsconfig.json"
+        ]
+      }
+    },
+    {
       "src": "api/recovery-cron.ts",
       "use": "@vercel/node",
       "config": {
@@ -104,7 +118,7 @@
   "routes": [
     { "src": "/api/health",            "dest": "api/health.ts" },
     { "src": "/api/webhook",           "dest": "api/webhook.ts" },
-    { "src": "/api/telegram-webhook",  "dest": "api/entrypoint.ts" },
+    { "src": "/api/telegram-webhook",  "dest": "api/telegram-webhook.ts" },
     { "src": "/api/entrypoint",        "dest": "api/entrypoint.ts" },
     { "src": "/api/recovery-cron",     "dest": "api/recovery-cron.ts" },
     { "src": "/api/simulate-message",  "dest": "api/simulate-message.ts" },

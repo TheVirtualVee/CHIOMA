@@ -150,9 +150,9 @@ export function ARBITRATE(input: ArbitrationInput): ArbitrationOutput {
     return { actor: 'SYSTEM', reason: 'system_event_pass_through', confidence: 1 };
   }
 
-  // RULE 6 — SUPPRESSION RULE (NONE STATE)
+  // RULE 6 — SUPPRESSION RULE (NONE STATE) - OVERRIDDEN TO ADMIT NEW CUSTOMERS
   if (input.actorClassification === 'unknown') {
-    return { actor: 'NONE', reason: 'unknown_actor_suppression', confidence: 1 };
+    return { actor: 'CHIOMA', reason: 'unknown_actor_default_to_customer', confidence: 1 };
   }
 
   // CUSTOMER PATH ARBITRATION
