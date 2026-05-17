@@ -70,6 +70,11 @@ export async function resolveInstanceByTenant(
   sql: any,
   tenantId: string
 ): Promise<ChiomaInstance | null> {
+  // Check cache first
+  const cacheKey = `tenant:${tenantId}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const [row] = await sql`
     SELECT 
       instance_id,
@@ -91,7 +96,9 @@ export async function resolveInstanceByTenant(
     return null;
   }
 
-  return mapRowToInstance(row);
+  const instance = mapRowToInstance(row);
+  cacheSet(cacheKey, instance);
+  return instance;
 }
 
 function mapRowToInstance(row: any): ChiomaInstance {
