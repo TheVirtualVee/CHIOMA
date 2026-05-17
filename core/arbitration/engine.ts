@@ -1,25 +1,33 @@
 export type Actor = "CHIOMA" | "OWNER" | "SYSTEM" | "NONE";
-export type ConversationMode =
-  | "COLLABORATIVE"
-  | "AUTONOMOUS"
-  | "OVERRIDE_WINDOW"
-  | "ESCALATION_LOCK";
 
-export type ConversationState = {
+export type ArbitrationInput = {
+  // Identity Layer (Article 4.1)
   tenantId: string;
-  customerPhone: string;
+  channelUserId: string;
+  channelChatId: string;
+  
+  // Temporal State (Article 4.2)
   ownerLastSeen: number | null;
-  ownerOnlineStatus: "online" | "away" | "offline";
-  responseLockUntil: number | null;
-  lastChiomaAt: number | null;
   lastOwnerAt: number | null;
-  messageCount: number;
+  lastChiomaAt: number | null;
+  responseLockUntil: number | null;
+  
+  // Configuration Layer (Article 4.3)
+  autoResponseThresholdMinutes: number;
+  slowResponseThresholdSeconds: number;
+  overrideLockSeconds: number;
+  
+  // Actor Classification (Article 4.4)
+  actorClassification: 'owner' | 'customer' | 'system' | 'unknown';
+  
+  // Escalation Check (Added for completeness within the state machine)
   escalationActive?: boolean;
 };
 
-export type ArbitrationDecision = {
-  actor: Actor;
+export type ArbitrationOutput = {
+  actor: 'CHIOMA' | 'OWNER' | 'NONE' | 'SYSTEM';
   reason: string;
+  confidence: 0 | 1;
 };
 
 // ============================================
@@ -31,32 +39,23 @@ export async function resolveTenantFromTelegram(
   chatId: string,
   botToken: string
 ): Promise<string | null> {
-  // Step 1: Does this bot token belong to a tenant?
-  // We use chioma_instances for backward compatibility or tenant_instances
-  // For now we check tenant_instances
   const [instance] = await sql`
     SELECT tenant_id FROM tenant_instances
     WHERE telegram_bot_token = ${botToken}
   `;
-  
   if (instance) return instance.tenant_id;
   
-  // Step 2: Is this a direct owner chat (onboarding flow)?
   const [ownerTenant] = await sql`
     SELECT tenant_id FROM tenants
     WHERE ${chatId} = ANY(owner_telegram_ids)
   `;
-  
   if (ownerTenant) return ownerTenant.tenant_id;
   
-  // Step 3: Customer messaging - need business context
-  // For MVP: return first active tenant
   const [defaultTenant] = await sql`
     SELECT tenant_id FROM tenant_instances
     WHERE billing_state = 'ACTIVE'
     LIMIT 1
   `;
-  
   return defaultTenant?.tenant_id || null;
 }
 
@@ -68,23 +67,19 @@ export async function detectActor(
   sql: any,
   tenantId: string,
   channelUserId: string
-): Promise<'owner' | 'customer' | 'unknown'> {
-  // Check if this user is an owner of this tenant
+): Promise<'owner' | 'customer' | 'system' | 'unknown'> {
   const [tenant] = await sql`
     SELECT owner_telegram_ids FROM tenants
     WHERE tenant_id = ${tenantId}
   `;
-  
   if (tenant && tenant.owner_telegram_ids && tenant.owner_telegram_ids.includes(channelUserId)) {
     return 'owner';
   }
   
-  // Check if this is a known customer
   const [customer] = await sql`
     SELECT customer_phone FROM customer_memory
     WHERE tenant_id = ${tenantId} AND customer_phone = ${channelUserId}
   `;
-  
   if (customer) return 'customer';
   
   return 'unknown';
@@ -98,93 +93,93 @@ export async function getConversationState(
   sql: any,
   tenantId: string,
   customerPhone: string
-): Promise<ConversationState> {
+): Promise<Partial<ArbitrationInput>> {
+  const [tenant] = await sql`
+    SELECT auto_respond_threshold_minutes, slow_response_threshold_seconds, override_lock_seconds
+    FROM tenants
+    WHERE tenant_id = ${tenantId}
+  `;
+  
   const [instance] = await sql`
-    SELECT owner_last_seen, owner_online_status, response_lock_until
+    SELECT owner_last_seen, response_lock_until
     FROM tenant_instances
     WHERE tenant_id = ${tenantId}
   `;
   
   const [memory] = await sql`
-    SELECT last_chioma_at, last_owner_at, message_count
+    SELECT last_chioma_at, last_owner_at
     FROM customer_memory
     WHERE tenant_id = ${tenantId} AND customer_phone = ${customerPhone}
   `;
   
   return {
-    tenantId,
-    customerPhone,
     ownerLastSeen: instance?.owner_last_seen?.getTime() || null,
-    ownerOnlineStatus: instance?.owner_online_status || 'offline',
     responseLockUntil: instance?.response_lock_until?.getTime() || null,
     lastChiomaAt: memory?.last_chioma_at?.getTime() || null,
     lastOwnerAt: memory?.last_owner_at?.getTime() || null,
-    messageCount: memory?.message_count || 0,
-    escalationActive: false // Set dynamically by checkEscalation
+    autoResponseThresholdMinutes: tenant?.auto_respond_threshold_minutes ?? 5,
+    slowResponseThresholdSeconds: tenant?.slow_response_threshold_seconds ?? 30,
+    overrideLockSeconds: tenant?.override_lock_seconds ?? 10
   };
-}
-
-// ============================================
-// MODE RESOLVER
-// ============================================
-
-export function resolveMode(state: ConversationState): ConversationMode {
-  const now = Date.now();
-
-  if (state.escalationActive) return "ESCALATION_LOCK";
-  
-  if (state.responseLockUntil && now < state.responseLockUntil) {
-    return "OVERRIDE_WINDOW";
-  }
-  
-  if (state.ownerOnlineStatus === "online") {
-    return "COLLABORATIVE";
-  }
-  
-  if (state.ownerOnlineStatus === "away") {
-    return "COLLABORATIVE";
-  }
-  
-  return "AUTONOMOUS";
 }
 
 // ============================================
 // SPEAKER ARBITER (CORE LOGIC)
 // ============================================
 
-export function resolveSpeaker(state: ConversationState): ArbitrationDecision {
-  const mode = resolveMode(state);
+export function ARBITRATE(input: ArbitrationInput): ArbitrationOutput {
   const now = Date.now();
 
-  // 🔒 HARD OVERRIDE LOCK
-  if (mode === "OVERRIDE_WINDOW") {
-    return { actor: "NONE", reason: "owner_override_lock" };
+  // RULE 1 — OWNER IS ABSOLUTE PRIORITY
+  if (input.actorClassification === 'owner') {
+    return { actor: 'OWNER', reason: 'owner_identity_event', confidence: 1 };
   }
 
-  // 🚨 ESCALATION
-  if (mode === "ESCALATION_LOCK") {
-    return { actor: "OWNER", reason: "emergency_escalation" };
+  // SYSTEM EMERGENCY ESCALATION OVERRIDE
+  if (input.escalationActive) {
+    return { actor: 'OWNER', reason: 'emergency_escalation', confidence: 1 };
   }
 
-  // 🤝 COLLABORATIVE MODE
-  if (mode === "COLLABORATIVE") {
-    const ownerRecentlySpoke =
-      state.lastOwnerAt && now - state.lastOwnerAt < 10_000; // 10 second priority window
-    
+  // RULE 2 — OWNER OVERRIDE LOCK IS GLOBAL SUPPRESSION FIELD
+  if (input.responseLockUntil !== null && now < input.responseLockUntil) {
+    return { actor: 'NONE', reason: 'owner_override_lock_active', confidence: 1 };
+  }
+
+  // RULE 7 — SYSTEM EVENTS ARE PASS-THROUGH ONLY
+  if (input.actorClassification === 'system') {
+    return { actor: 'SYSTEM', reason: 'system_event_pass_through', confidence: 1 };
+  }
+
+  // RULE 6 — SUPPRESSION RULE (NONE STATE)
+  if (input.actorClassification === 'unknown') {
+    return { actor: 'NONE', reason: 'unknown_actor_suppression', confidence: 1 };
+  }
+
+  // CUSTOMER PATH ARBITRATION
+  if (input.actorClassification === 'customer') {
+    // RULE 3 — OWNER RECENCY DOMINANCE
+    const OWNER_RECENCY_WINDOW_MS = 10_000;
+    const ownerRecentlySpoke = input.lastOwnerAt !== null && (now - input.lastOwnerAt) < OWNER_RECENCY_WINDOW_MS;
     if (ownerRecentlySpoke) {
-      return { actor: "OWNER", reason: "owner_priority_window" };
+      return { actor: 'NONE', reason: 'owner_recently_spoke_suppression', confidence: 1 };
     }
-    
-    return { actor: "CHIOMA", reason: "ai_assist_active" };
+
+    // Determine Owner Online Status
+    const isOwnerOnline = input.ownerLastSeen !== null && (now - input.ownerLastSeen) < (input.autoResponseThresholdMinutes * 60 * 1000);
+
+    // RULE 5 — COLLABORATIVE MODE
+    if (isOwnerOnline) {
+      return { actor: 'CHIOMA', reason: 'owner_online_collaborative_assist', confidence: 1 };
+    }
+
+    // RULE 4 — AUTONOMOUS MODE ACTIVATION
+    if (!isOwnerOnline) {
+      return { actor: 'CHIOMA', reason: 'owner_offline_autonomous_mode', confidence: 1 };
+    }
   }
 
-  // 🤖 AUTONOMOUS MODE
-  if (mode === "AUTONOMOUS") {
-    return { actor: "CHIOMA", reason: "offline_autonomy" };
-  }
-
-  // Default fallback (should never reach here)
-  return { actor: "CHIOMA", reason: "default_fallback" };
+  // FINAL AXIOM (SYSTEM CLOSURE CONDITION)
+  return { actor: 'NONE', reason: 'default_suppression_no_decision', confidence: 1 };
 }
 
 // ============================================

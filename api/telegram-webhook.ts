@@ -13,10 +13,11 @@ import { isFounderNumber, handleFounderTelegramMessage } from "@chioma/core/foun
 import { randomUUID } from "node:crypto";
 import {
   getConversationState,
-  resolveSpeaker,
+  ARBITRATE,
   checkEscalation,
   resolveTenantFromTelegram,
-  detectActor
+  detectActor,
+  type ArbitrationInput
 } from "../core/arbitration/engine.js";
 
 type TelegramUpdate = {
@@ -33,17 +34,14 @@ type TelegramUpdate = {
 export default async function handler(req: any, res: any) {
   console.log("[TELEGRAM_WEBHOOK] BOOT", { method: req.method, url: req.url });
   
-  // ✅ STEP 1: METHOD CHECK
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  // Verify Telegram secret token
   const secretHeader = req.headers['x-telegram-bot-api-secret-token'];
   if (secretHeader !== process.env.TELEGRAM_WEBHOOK_SECRET) {
     console.warn("[TELEGRAM_WEBHOOK] INVALID_SECRET from", req.headers['x-forwarded-for']);
-    return res.status(200).json({ ok: true }); // Return 200 to not reveal the endpoint exists
+    return res.status(200).json({ ok: true }); 
   }
 
-  // ✅ STEP 2: IMMEDIATE ACKNOWLEDGMENT (CRITICAL — NEVER BLOCK)
   res.status(200).json({ ok: true });
 
   let config;
@@ -77,17 +75,14 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // STEP 1: Resolve Tenant (NOT owner ID)
     const tenantId = await resolveTenantFromTelegram(sql, chatId, botToken);
     if (!tenantId) {
       console.error(`[TELEGRAM_WEBHOOK] No tenant for chat ${chatId}`);
       return;
     }
     
-    // STEP 2: Detect Actor
     const actor = await detectActor(sql, tenantId, senderId);
     
-    // STEP 3: Log event immediately
     const [eventRecord] = await sql`
       INSERT INTO conversation_events (tenant_id, channel, channel_chat_id, channel_user_id, sender_actor, message)
       VALUES (${tenantId}, 'telegram', ${chatId}, ${senderId}, ${actor}, ${messageText})
@@ -95,7 +90,6 @@ export default async function handler(req: any, res: any) {
     `;
     const eventId = eventRecord.id;
     
-    // STEP 4: Handle Owner path (bypass arbitration)
     if (actor === 'owner') {
       console.log("[TELEGRAM_WEBHOOK] FOUNDER_MESSAGE: routing to control plane");
 
@@ -105,14 +99,12 @@ export default async function handler(req: any, res: any) {
         WHERE tenant_id = ${tenantId}
       `;
       
-      // Some owners don't have customer_memory entries, safe update
       await sql`
         UPDATE customer_memory
         SET last_owner_at = NOW()
         WHERE tenant_id = ${tenantId} AND customer_phone = ${chatId}
       `;
       
-      // Apply override lock
       await sql`
         UPDATE tenant_instances
         SET response_lock_until = NOW() + INTERVAL '10 seconds'
@@ -120,12 +112,10 @@ export default async function handler(req: any, res: any) {
       `;
 
       await handleFounderTelegramMessage(chatId, messageText, botToken, sql);
-      return; // Owner message already delivered by Telegram
+      return; 
     }
     
-    // STEP 5: Handle Customer path with Arbitration
     if (actor === 'customer' || actor === 'unknown') {
-      // Ensure customer memory exists
       await sql`
         INSERT INTO customer_memory (tenant_id, customer_phone)
         VALUES (${tenantId}, ${senderId})
@@ -134,49 +124,32 @@ export default async function handler(req: any, res: any) {
       
       const { isEscalation, keyword } = checkEscalation(messageText);
 
-      if (isEscalation) {
-        console.log(`[ARBITER] Escalation detected: "${keyword}" from customer ${senderId}`);
+      const partialState = await getConversationState(sql, tenantId, senderId);
+      const input: ArbitrationInput = {
+        tenantId,
+        channelUserId: senderId,
+        channelChatId: chatId,
+        ownerLastSeen: partialState.ownerLastSeen ?? null,
+        lastOwnerAt: partialState.lastOwnerAt ?? null,
+        lastChiomaAt: partialState.lastChiomaAt ?? null,
+        responseLockUntil: partialState.responseLockUntil ?? null,
+        autoResponseThresholdMinutes: partialState.autoResponseThresholdMinutes ?? 5,
+        slowResponseThresholdSeconds: partialState.slowResponseThresholdSeconds ?? 30,
+        overrideLockSeconds: partialState.overrideLockSeconds ?? 10,
+        actorClassification: actor,
+        escalationActive: isEscalation
+      };
 
-        const [tenantRec] = await sql`SELECT emergency_telegram_id FROM tenants WHERE tenant_id = ${tenantId}`;
-        const emergencyContactId = process.env.TELEGRAM_ADMIN_CHAT_ID || tenantRec?.emergency_telegram_id;
-        
-        if (emergencyContactId) {
-          await sql`
-            INSERT INTO escalation_logs (tenant_id, chat_id, customer_message, trigger_keyword, emergency_contact_notified)
-            VALUES (${tenantId}, ${chatId}, ${messageText}, ${keyword}, true)
-          `;
-          try {
-            const fetch = globalThis.fetch;
-            await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                chat_id: emergencyContactId,
-                text: `🚨 ESCALATION ALERT\n\nCustomer: ${senderId}\nMessage: "${messageText.substring(0, 200)}"\n\nTrigger: ${keyword}\n\nPlease respond to this customer immediately.`
-              })
-            });
-          } catch (e) {
-            console.error("Failed to send escalation", e);
-          }
-        }
-        return;
-      }
-      
-      // Get state and run arbitration
-      const state = await getConversationState(sql, tenantId, senderId);
-      state.escalationActive = isEscalation;
-      const decision = resolveSpeaker(state);
+      const decision = ARBITRATE(input);
       
       console.log(`[ARBITER] Decision for chat ${chatId}: ${decision.actor} (${decision.reason})`);
 
-      // Log arbitration decision
       await sql`
         UPDATE conversation_events
         SET resolved_actor = ${decision.actor}, arbitration_reason = ${decision.reason}
         WHERE id = ${eventId}
       `;
       
-      // Execute decision
       if (decision.actor === 'CHIOMA') {
         const instance = await resolveInstanceByTenant(sql, tenantId);
         if (!instance) return;
@@ -255,6 +228,31 @@ export default async function handler(req: any, res: any) {
           `;
         }
         telemetry.complete("COMPLETED");
+      } else if (decision.actor === 'OWNER' && isEscalation) {
+        // Send escalation alert since OWNER was forced due to escalation
+        console.log(`[ARBITER] Escalation detected: "${keyword}" from customer ${senderId}`);
+        const [tenantRec] = await sql`SELECT emergency_telegram_id FROM tenants WHERE tenant_id = ${tenantId}`;
+        const emergencyContactId = process.env.TELEGRAM_ADMIN_CHAT_ID || tenantRec?.emergency_telegram_id;
+        
+        if (emergencyContactId) {
+          await sql`
+            INSERT INTO escalation_logs (tenant_id, chat_id, customer_message, trigger_keyword, emergency_contact_notified)
+            VALUES (${tenantId}, ${chatId}, ${messageText}, ${keyword}, true)
+          `;
+          try {
+            const fetch = globalThis.fetch;
+            await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: emergencyContactId,
+                text: `🚨 ESCALATION ALERT\n\nCustomer: ${senderId}\nMessage: "${messageText.substring(0, 200)}"\n\nTrigger: ${keyword}\n\nPlease respond to this customer immediately.`
+              })
+            });
+          } catch (e) {
+            console.error("Failed to send escalation", e);
+          }
+        }
       } else if (decision.actor === 'NONE') {
         console.log(`[ARBITER] Suppressed: ${decision.reason}`);
       } else if (decision.actor === 'OWNER') {
