@@ -13,19 +13,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-
     "db:push": "supabase db push --db-url \"$DATABASE_URL\"",
     "db:pull": "supabase db pull --db-url \"$DATABASE_URL\"",
     "db:reset": "supabase db reset --db-url \"$DATABASE_URL\"",
-
     "deploy:check": "node scripts/deploy-check.mjs",
     "overseer:check": "node scripts/overseer.mjs",
-
     "build:webhook": "npm run typecheck",
     "deploy:webhook": "cd apps/webhook && vercel deploy --prod",
-
     "vercel:typecheck": "npm run typecheck",
-
     "postinstall": "npm run build"
   },
   "dependencies": {
@@ -41,6 +36,7 @@
   "devDependencies": {
     "@types/dotenv": "^6.1.1",
     "@types/node": "^24.0.0",
+    "@vercel/node": "^5.8.2",
     "dotenv": "^17.4.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.0",

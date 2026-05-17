@@ -321,3 +321,28 @@ export type BusinessDailyState = {
   facts: Record<string, unknown>;
   lockedAt: string;
 };
+
+export type BusinessDraft = {
+  name_guess: string;
+  entities: Array<{
+    category: string;
+    label: string;
+    price_point?: string;
+    billing_unit?: string;
+  }>;
+  workflow_guess: {
+    booking_process: string;
+    payment_terms: string;
+    customer_qualifier: string;
+  };
+  tone_guess: string;
+  confidence_scores: Record<string, number>;
+};
+
+export type ProposedStaffDecision = {
+  response: string;
+  customer_need: string;
+  intent_type: "SALES" | "SUPPORT" | "COMPLAINT" | "INQUIRY" | "UNKNOWN";
+  suggested_action: StaffAction;
+  confidence: number;
+};
