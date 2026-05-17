@@ -84,6 +84,20 @@
           "package.json"
         ]
       }
+    },
+    {
+      "src": "api/scheduler-cron.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "core/**",
+          "infrastructure/**",
+          "services/**",
+          "runtime/**",
+          "package.json",
+          "tsconfig.json"
+        ]
+      }
     }
   ],
   "routes": [
@@ -93,6 +107,13 @@
     { "src": "/api/recovery-cron",     "dest": "api/recovery-cron.ts" },
     { "src": "/api/simulate-message",  "dest": "api/simulate-message.ts" },
     { "src": "/api/debug-loop",        "dest": "api/debug-loop.ts" },
-    { "src": "/api/ping",              "dest": "api/ping.ts" }
+    { "src": "/api/ping",              "dest": "api/ping.ts" },
+    { "src": "/api/scheduler-cron",     "dest": "api/scheduler-cron.ts" }
+  ],
+  "crons": [
+    {
+      "path": "/api/scheduler-cron",
+      "schedule": "*/5 * * * *"
+    }
   ]
 }
